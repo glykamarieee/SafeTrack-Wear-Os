@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SafeTrack</string>
+    <string name="channel_monitoring">SafeTrack monitoring</string>
+    <string name="channel_sos">SOS alerts</string>
+    <string name="monitoring_notification_title">SafeTrack is on</string>
+    <string name="monitoring_notification_text">Keeping your guardian updated</string>
+    <string name="sos_notification_title">Sending SOS…</string>
+    <string name="sos_notification_text">Tap Cancel if this was a mistake</string>
+    <string name="sos_cancel">Cancel SOS</string>
+</resources>
