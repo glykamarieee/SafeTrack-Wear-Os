@@ -21,12 +21,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -150,22 +159,57 @@ fun ConnectScreen(viewModel: ConnectViewModel) {
 }
 
 /**
- * Six code boxes. Tapping them opens the watch's own keyboard in number mode;
- * the keyboard's Done key connects.
+ * Six code boxes. Tapping them opens the watch's own keyboard in number mode.
+ *
+ * Wear OS keyboards differ in what their ✓ key does (Done, another action, Enter,
+ * or just closing the keyboard), so the code is submitted in every one of those
+ * cases, and also as soon as the sixth digit arrives. Submitting twice is
+ * harmless: the view model ignores a second call while verifying.
  */
 @Composable
 private fun CodeField(code: String, enabled: Boolean, onChange: (String) -> Unit, onDone: () -> Unit) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val currentCode by rememberUpdatedState(code)
+
+    fun submit() {
+        keyboard?.hide()
+        focusManager.clearFocus()
+        onDone()
+    }
+
     BasicTextField(
         value = code,
-        onValueChange = onChange,
+        onValueChange = { input ->
+            val wasComplete = currentCode.length == ConnectUiState.CODE_LENGTH
+            onChange(input)
+            val digits = input.filter(Char::isDigit).take(ConnectUiState.CODE_LENGTH)
+            if (!wasComplete && digits.length == ConnectUiState.CODE_LENGTH) submit()
+        },
         enabled = enabled,
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { onDone() }),
+        keyboardActions = KeyboardActions(
+            onDone = { submit() },
+            onGo = { submit() },
+            onSend = { submit() },
+            onNext = { submit() },
+            onSearch = { submit() },
+        ),
         cursorBrush = SolidColor(Color.Transparent),
-        modifier = Modifier.semantics {
-            contentDescription = "Connection code, ${code.length} of 6 digits. Tap to type."
-        },
+        modifier = Modifier
+            .onPreviewKeyEvent { event ->
+                val enter = event.key == Key.Enter || event.key == Key.NumPadEnter
+                if (enter && event.type == KeyEventType.KeyUp) submit()
+                enter
+            }
+            .onFocusChanged { focus ->
+                // Keyboards whose ✓ only closes the keyboard.
+                if (!focus.isFocused && currentCode.length == ConnectUiState.CODE_LENGTH) onDone()
+            }
+            .semantics {
+                contentDescription = "Connection code, ${code.length} of 6 digits. Tap to type."
+            },
         decorationBox = { innerTextField ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CodeSlots(code)
