@@ -35,8 +35,14 @@ approach the child-phone mode of the SafeTrack app uses.
    keys. Each watch authenticates with its own device token from `pair_watch`, stored
    encrypted with a Keystore key.
 3. Build: `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`.
-4. Install on an emulator: `./gradlew installDebug`, or
-   `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`.
+4. Run on the Wear OS emulator (builds, installs as an update, launches; phones are skipped):
+   ```powershell
+   .\run-emulator.cmd            # or .\run-emulator.ps1
+   .\run-emulator.cmd -NoBuild   # reinstall the last build
+   .\run-emulator.cmd -Logs      # then follow the app's logs
+   .\run-emulator.cmd -Serial emulator-5556
+   ```
+   Avoid `./gradlew installDebug`: it installs on every connected device.
    On a real watch, enable Developer options + Wireless debugging, then
    `adb pair <ip:port>`, `adb connect <ip:port>` and install.
 
