@@ -1,7 +1,12 @@
 package com.safetrack.watch.app.theme
 
+import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -11,34 +16,41 @@ import androidx.wear.compose.material3.Typography
 import com.safetrack.watch.R
 
 /**
- * SafeTrack's Wear OS palette, matching the phone app's dark theme.
- *
- * The watch is always true black (less glare, less power on OLED). Neon green
- * is for monitoring and safe states, amber for attention, coral red only for
- * SOS. Every text colour passes WCAG AA on black.
+ * SafeTrack's light Wear OS palette: white and soft mint surfaces, forest-green
+ * text (never plain black), SafeTrack green for safe states, dark amber for
+ * attention, red only for SOS. Every text colour passes WCAG AA (4.5:1) on
+ * [Background] and [Surface].
  */
 object SafeTrackColors {
-    val Green = Color(0xFF3DDC84)
-    val GreenStrong = Color(0xFF22B35E)
-    val GreenLight = Color(0xFF7CEBAE)
-    val Sage = Color(0xFF9FC3AE)
-    val Mint = Color(0xFFCFE6D6)
+    // Surfaces
+    val Background = Color(0xFFF6FAF7)
+    val Surface = Color(0xFFFFFFFF)
+    val Mint = Color(0xFFE6F4EA)
+    val MintDeep = Color(0xFFCDEBD7)
+    val Divider = Color(0xFFDCE8E0)
+    val Track = Color(0xFFE3ECE6)
 
-    val Background = Color(0xFF000000)
-    val SurfaceDark = Color(0xFF0E1A14)
-    val SurfaceRaised = Color(0xFF12201A)
-    val SurfaceAccent = Color(0xFF163D2B)
-    val Divider = Color(0xFF1E3329)
+    // Text
+    val Forest = Color(0xFF0D2A1E)       // ~14:1 on Background
+    val TextMuted = Color(0xFF3F5247)    // ~8:1
+    val TextFaint = Color(0xFF5A6B61)    // ~5.4:1
 
-    val TextPrimary = Color(0xFFF2F4EF)
-    val TextMuted = Color(0xFFA3ABA4)
-    val TextFaint = Color(0xFF8C948F)
+    // Brand and states
+    val Green = Color(0xFF15803D)        // 5.0:1 on white; white on it 5.0:1
+    val GreenBright = Color(0xFF22B35E)  // decorative only (rings, glows)
+    val Safe = Green
+    val Warning = Color(0xFF8F5300)      // dark amber text, ~5.6:1
+    val WarningFill = Color(0xFFF2B94B)
+    val WarningSoft = Color(0xFFFFF3D6)
+    val Neutral = Color(0xFF5A6B61)
+    val NeutralSoft = Color(0xFFE9EEEB)
 
-    val Safe = Color(0xFF3DDC84)
-    val Danger = Color(0xFFFF6B5C)
-    val DangerDeep = Color(0xFF3A1512)
-    val Warning = Color(0xFFF2B94B)
-    val Neutral = Color(0xFF97A89E)
+    // SOS only
+    val Danger = Color(0xFFB42318)       // ~6.3:1; white on it ~6.5:1
+    val DangerBright = Color(0xFFE5483A)
+    val DangerSoft = Color(0xFFFDE8E6)
+    val DangerDeep = Color(0xFF5C120B)   // countdown background
+    val OnDanger = Color(0xFFFFFFFF)
 }
 
 /** Plus Jakarta Sans, the font used across SafeTrack (bundled in res/font). */
@@ -54,28 +66,45 @@ val PlusJakartaSans = FontFamily(
 
 private val scheme = ColorScheme(
     primary = SafeTrackColors.Green,
-    primaryDim = SafeTrackColors.GreenStrong,
-    primaryContainer = SafeTrackColors.SurfaceAccent,
-    onPrimary = Color.Black,
-    onPrimaryContainer = SafeTrackColors.Mint,
-    secondary = SafeTrackColors.Sage,
-    onSecondary = Color.Black,
-    secondaryContainer = SafeTrackColors.SurfaceRaised,
-    onSecondaryContainer = SafeTrackColors.Mint,
-    surfaceContainerLow = SafeTrackColors.SurfaceDark,
-    surfaceContainer = SafeTrackColors.SurfaceDark,
-    surfaceContainerHigh = SafeTrackColors.SurfaceRaised,
-    onSurface = SafeTrackColors.TextPrimary,
+    primaryDim = SafeTrackColors.Green,
+    primaryContainer = SafeTrackColors.Mint,
+    onPrimary = Color.White,
+    onPrimaryContainer = SafeTrackColors.Forest,
+    secondary = SafeTrackColors.TextMuted,
+    onSecondary = Color.White,
+    secondaryContainer = SafeTrackColors.Mint,
+    onSecondaryContainer = SafeTrackColors.Forest,
+    surfaceContainerLow = SafeTrackColors.Surface,
+    surfaceContainer = SafeTrackColors.Surface,
+    surfaceContainerHigh = SafeTrackColors.Mint,
+    onSurface = SafeTrackColors.Forest,
     onSurfaceVariant = SafeTrackColors.TextMuted,
+    outline = SafeTrackColors.Divider,
+    outlineVariant = SafeTrackColors.Divider,
     background = SafeTrackColors.Background,
-    onBackground = SafeTrackColors.TextPrimary,
+    onBackground = SafeTrackColors.Forest,
     error = SafeTrackColors.Danger,
-    onError = Color.Black,
+    onError = Color.White,
 )
 
 private val typography = Typography(defaultFontFamily = PlusJakartaSans)
 
+/**
+ * True when the user turned animations off (Settings > Accessibility > Remove
+ * animations sets the animator duration scale to 0). Screens then show
+ * everything instantly or with a plain fade.
+ */
+val LocalReduceMotion = staticCompositionLocalOf { false }
+
 @Composable
 fun SafeTrackTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = scheme, typography = typography, content = content)
+    val context = LocalContext.current
+    val reduceMotion = remember {
+        runCatching {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        }.getOrDefault(false)
+    }
+    CompositionLocalProvider(LocalReduceMotion provides reduceMotion) {
+        MaterialTheme(colorScheme = scheme, typography = typography, content = content)
+    }
 }

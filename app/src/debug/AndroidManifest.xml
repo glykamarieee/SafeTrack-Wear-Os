@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: a screen preview for checking layouts without pairing. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.safetrack.watch.debug.ScreenPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SafeTrack" />
+    </application>
+</manifest>

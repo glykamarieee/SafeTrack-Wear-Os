@@ -14,6 +14,7 @@ import androidx.wear.compose.material3.AppScaffold
 import com.safetrack.watch.SafeTrackApp
 import com.safetrack.watch.app.navigation.SafeTrackRoot
 import com.safetrack.watch.app.theme.SafeTrackTheme
+import com.safetrack.watch.app.ui.components.SafeTrackTimeText
 import com.safetrack.watch.domain.model.SosState
 import kotlinx.coroutines.launch
 
@@ -44,7 +45,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             SafeTrackTheme {
-                AppScaffold {
+                AppScaffold(timeText = { SafeTrackTimeText() }) {
                     SafeTrackRoot(container)
                 }
             }

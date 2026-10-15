@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="safetrack_black">#050907</color>
+    <!-- Light app background (matches SafeTrackColors.Background). -->
+    <color name="safetrack_background">#F6FAF7</color>
+    <!-- SafeTrack green behind the white logo on the splash. -->
+    <color name="safetrack_splash">#15803D</color>
     <color name="safetrack_icon_bg">#0B2A1D</color>
 
     <style name="Theme.SafeTrack" parent="android:Theme.DeviceDefault">
-        <item name="android:windowBackground">@color/safetrack_black</item>
+        <item name="android:windowBackground">@color/safetrack_background</item>
     </style>
 
     <style name="Theme.SafeTrack.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/safetrack_black</item>
+        <item name="windowSplashScreenBackground">@color/safetrack_splash</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/safetrack_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/Theme.SafeTrack</item>
     </style>

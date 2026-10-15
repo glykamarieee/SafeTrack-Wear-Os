@@ -9,16 +9,17 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,22 +28,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
-import androidx.wear.compose.material3.Button
-import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.safetrack.watch.app.theme.SafeTrackColors
-import com.safetrack.watch.app.ui.components.Eyebrow
-import com.safetrack.watch.app.ui.components.SafeTrackBrand
+import com.safetrack.watch.app.ui.components.BodyText
+import com.safetrack.watch.app.ui.components.PillButton
+import com.safetrack.watch.app.ui.components.PillStyle
+import com.safetrack.watch.app.ui.components.ScreenTitle
+import com.safetrack.watch.app.ui.components.entrance
+import com.safetrack.watch.app.ui.components.rememberRipple
+import com.safetrack.watch.app.ui.components.roundInset
 
 object Permissions {
     val foreground: Array<String> = buildList {
@@ -80,105 +86,92 @@ fun PermissionsScreen(needsForeground: Boolean, onChanged: () -> Unit, onSkipBac
         onChanged()
     }
 
-    val title = if (needsForeground) "Allow location" else "Keep monitoring active"
+    val title = if (needsForeground) "Allow location" else "Keep SafeTrack on"
     val body = if (needsForeground) {
-        "SafeTrack uses the watch location for guardian updates, safe-zone status, and confirmed SOS alerts."
+        "SafeTrack uses your location for guardian updates, safe places and SOS."
     } else {
-        "Allow location all the time so monitoring can continue when the display is off or after the watch restarts."
+        "Choose \"Allow all the time\" so it keeps working when the screen is off or after a restart."
     }
+    val settingsNeeded = (needsForeground && denied) || (!needsForeground && backgroundDenied)
+    val ripple = rememberRipple(2200)
 
-    val listState = rememberScalingLazyListState(initialCenterItemIndex = 1)
-    ScreenScaffold(scrollState = listState) { contentPadding ->
-        ScalingLazyColumn(
-            state = listState,
-            contentPadding = contentPadding,
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            item { SafeTrackBrand(compact = true) }
-            item {
-                Box(
-                    modifier = Modifier
-                        .size(66.dp)
-                        .clip(CircleShape)
-                        .background(SafeTrackColors.Green.copy(alpha = 0.12f))
-                        .border(1.dp, SafeTrackColors.Green.copy(alpha = 0.32f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("⌖", fontSize = 34.sp, color = SafeTrackColors.GreenLight, fontWeight = FontWeight.Bold)
-                }
-            }
-            item {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Eyebrow(if (needsForeground) "Location permission" else "Background monitoring")
-                    Text(
-                        title,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = SafeTrackColors.TextPrimary,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        body,
-                        fontSize = 10.sp,
-                        lineHeight = 13.sp,
-                        color = SafeTrackColors.TextMuted,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
-                }
-            }
-            item {
-                Button(
-                    onClick = {
-                        when {
-                            needsForeground && denied -> context.startActivity(appSettings(context))
-                            !needsForeground && backgroundDenied -> context.startActivity(appSettings(context))
-                            needsForeground -> foregroundLauncher.launch(Permissions.foreground)
-                            else -> backgroundLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    // Opens centred on the icon and text; ALLOW peeks in below.
+    val listState = rememberScalingLazyListState(initialCenterItemIndex = 0)
+    Box(Modifier.fillMaxSize().background(SafeTrackColors.Background)) {
+        ScreenScaffold(scrollState = listState) { contentPadding ->
+            ScalingLazyColumn(
+                state = listState,
+                contentPadding = contentPadding,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.roundInset(0.06f).entrance(0)) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(56.dp)) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            if (ripple > 0f) {
+                                drawCircle(
+                                    color = SafeTrackColors.GreenBright.copy(alpha = 0.4f * (1f - ripple)),
+                                    radius = size.minDimension / 2 * (0.6f + 0.4f * ripple),
+                                    style = Stroke(2.dp.toPx()),
+                                )
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SafeTrackColors.Green,
-                        contentColor = Color.Black,
-                    ),
-                ) {
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if ((needsForeground && denied) || (!needsForeground && backgroundDenied)) "OPEN SETTINGS" else "ALLOW",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Brush.verticalGradient(listOf(SafeTrackColors.GreenBright, SafeTrackColors.Green))),
+                        ) {
+                            Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                        ScreenTitle(title)
+                        BodyText(body, maxLines = 4)
+                    }
+                }
+                item {
+                    PillButton(
+                        label = if (settingsNeeded) "OPEN SETTINGS" else "ALLOW",
+                        onClick = {
+                            when {
+                                needsForeground && denied -> context.startActivity(appSettings(context))
+                                !needsForeground && backgroundDenied -> context.startActivity(appSettings(context))
+                                needsForeground -> foregroundLauncher.launch(Permissions.foreground)
+                                else -> backgroundLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                            }
+                        },
+                        modifier = Modifier.roundInset(0.06f).widthIn(max = 160.dp).entrance(2),
+                    )
+                }
+                if (!needsForeground) {
+                    item {
+                        PillButton(
+                            label = "LATER",
+                            onClick = onSkipBackground,
+                            style = PillStyle.Tonal,
+                            modifier = Modifier.roundInset(0.06f).widthIn(max = 160.dp),
                         )
                     }
                 }
-            }
-            if (!needsForeground) {
                 item {
-                    Button(
-                        onClick = onSkipBackground,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.filledTonalButtonColors(),
-                    ) {
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("LATER", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
+                    Box(Modifier.roundInset(0.08f)) {
+                        Text(
+                            if (needsForeground) {
+                                "Location works when the watch can find it and has permission."
+                            } else {
+                                "Later keeps the permissions you already gave."
+                            },
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp,
+                            color = SafeTrackColors.TextFaint,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                        )
                     }
                 }
-            }
-            item {
-                Text(
-                    if (needsForeground) {
-                        "SafeTrack shows available safety information only; location availability depends on the watch and its permissions."
-                    } else {
-                        "Choosing Later does not add new behavior; it only continues with the permissions currently granted."
-                    },
-                    fontSize = 8.sp,
-                    lineHeight = 11.sp,
-                    color = SafeTrackColors.TextFaint,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
-                )
             }
         }
     }
