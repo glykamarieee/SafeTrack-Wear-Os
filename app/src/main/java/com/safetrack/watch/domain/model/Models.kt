@@ -75,11 +75,13 @@ data class PendingSos(
     val localId: String,
     val childId: String,
     val activation: String,
-    /** ISO-8601 time the child confirmed the SOS. Also the server's duplicate key. */
+    /** ISO-8601 time the SOS was activated (start of the countdown). Also the server's duplicate key. */
     val triggeredAt: String,
     val location: WatchLocation?,
     val attempts: Int = 0,
     val lastAttemptAtMillis: Long? = null,
+    /** Set once SafeTrack refused this SOS's location; it is then sent without one. */
+    val sendWithoutLocation: Boolean = false,
 )
 
 /** What the SOS screen shows. */

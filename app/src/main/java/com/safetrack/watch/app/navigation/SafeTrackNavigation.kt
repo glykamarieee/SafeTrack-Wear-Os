@@ -94,7 +94,12 @@ fun SafeTrackRoot(container: AppContainer) {
                 onSkipBackground = { backgroundSkipped = true },
             )
 
-            else -> MainNavigation(container)
+            else -> MainNavigation(
+                container = container,
+                backgroundLocationGranted = hasBackground,
+                // Shows the "allow all the time" screen again.
+                onAllowBackgroundLocation = { backgroundSkipped = false },
+            )
         }
 
         if (paired) {
@@ -108,7 +113,11 @@ fun SafeTrackRoot(container: AppContainer) {
 }
 
 @Composable
-private fun MainNavigation(container: AppContainer) {
+private fun MainNavigation(
+    container: AppContainer,
+    backgroundLocationGranted: Boolean,
+    onAllowBackgroundLocation: () -> Unit,
+) {
     val navController = rememberSwipeDismissableNavController()
     val dashboard: DashboardViewModel = viewModel(
         factory = viewModelFactory {
@@ -122,6 +131,8 @@ private fun MainNavigation(container: AppContainer) {
                 viewModel = dashboard,
                 onOpenSafeZone = { navController.navigate(Routes.SAFE_ZONE) },
                 onOpenStatus = { navController.navigate(Routes.STATUS) },
+                backgroundLocationGranted = backgroundLocationGranted,
+                onAllowBackgroundLocation = onAllowBackgroundLocation,
             )
         }
         composable(Routes.SAFE_ZONE) { SafeZoneScreen(dashboard) }

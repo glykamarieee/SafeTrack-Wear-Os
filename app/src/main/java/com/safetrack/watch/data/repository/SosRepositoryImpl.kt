@@ -4,6 +4,7 @@ import android.util.Log
 import com.safetrack.watch.data.local.LocalStore
 import com.safetrack.watch.data.remote.string
 import com.safetrack.watch.domain.model.PendingSos
+import com.safetrack.watch.domain.model.WatchLocation
 import com.safetrack.watch.domain.repository.SosRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -51,12 +52,18 @@ class SosRepositoryImpl(
         }
 
         // Latest available location: the fix taken at confirmation, else the newest fix kept offline.
-        val location = sos.location ?: store.pendingLocation()
+        val location = if (sos.sendWithoutLocation) null else sos.location ?: store.pendingLocation()
 
-        val result = link.send("trigger_watch_sos") {
-            put("p_activation_method", sos.activation)
-            put("p_triggered_at", sos.triggeredAt)
-            location?.let { putLocation(it) }
+        var result = send(sos, location)
+
+        if (result is WatchLink.Result.Failed && !result.retryable && location != null) {
+            // SafeTrack refused the content (e.g. invalid_location). An SOS without a
+            // location is better than none, so resend at once without it.
+            Log.w(TAG, "SOS ${sos.localId} refused with its location; resending without it")
+            store.updatePendingSos { list ->
+                list.map { if (it.localId == localId) it.copy(sendWithoutLocation = true) else it }
+            }
+            result = send(sos, null)
         }
 
         when (result) {
@@ -67,11 +74,26 @@ class SosRepositoryImpl(
                 true
             }
             is WatchLink.Result.Failed -> {
-                Log.w(TAG, "SOS ${sos.localId} not sent yet (attempt ${sos.attempts + 1})")
-                false
+                if (result.retryable) {
+                    Log.w(TAG, "SOS ${sos.localId} not sent yet (attempt ${sos.attempts + 1})")
+                    false
+                } else {
+                    // Resending identical content cannot succeed, and transmitAll stops at the
+                    // first failure, so keeping it would block every later SOS.
+                    Log.e(TAG, "SOS ${sos.localId} refused by SafeTrack; dropping it")
+                    remove(localId)
+                    true
+                }
             }
         }
     }
+
+    private suspend fun send(sos: PendingSos, location: WatchLocation?): WatchLink.Result =
+        link.send("trigger_watch_sos") {
+            put("p_activation_method", sos.activation)
+            put("p_triggered_at", sos.triggeredAt)
+            location?.let { putLocation(it) }
+        }
 
     override suspend fun transmitAll(): Boolean {
         for (sos in store.pendingSos.first().sortedBy { it.triggeredAt }) {

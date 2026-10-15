@@ -2,9 +2,6 @@ package com.safetrack.watch.app.ui.connect
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.runtime.Composable
@@ -55,10 +56,11 @@ import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.safetrack.watch.app.theme.SafeTrackColors
-import com.safetrack.watch.app.ui.components.ScreenTitle
-import com.safetrack.watch.app.ui.components.StatusDot
+import com.safetrack.watch.app.ui.components.Eyebrow
+import com.safetrack.watch.app.ui.components.SafeTrackBrand
+import com.safetrack.watch.app.ui.components.StatusPill
 
-/** Device Connection: the child types the guardian's 6-digit connection code. */
+/** Device Connection: the child types the guardian's existing 6-digit connection code. */
 @Composable
 fun ConnectScreen(viewModel: ConnectViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -70,15 +72,32 @@ fun ConnectScreen(viewModel: ConnectViewModel) {
             contentPadding = contentPadding,
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            item { ScreenTitle("SafeTrack") }
             item {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Connect Watch", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Enter Connection Code", fontSize = 12.sp, color = SafeTrackColors.TextMuted)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(top = 2.dp),
+                ) {
+                    SafeTrackBrand()
+                    Eyebrow("Child watch")
+                    Text(
+                        "Link this watch",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = SafeTrackColors.TextPrimary,
+                    )
+                    Text(
+                        "Enter the 6-digit code from the Guardian app.",
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        color = SafeTrackColors.TextMuted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+                    )
                 }
             }
+
             item {
                 CodeField(
                     code = viewModel.code,
@@ -90,13 +109,23 @@ fun ConnectScreen(viewModel: ConnectViewModel) {
 
             state.error?.let { message ->
                 item {
-                    Text(
-                        message,
-                        color = SafeTrackColors.Danger,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(SafeTrackColors.Danger.copy(alpha = 0.11f))
+                            .border(1.dp, SafeTrackColors.Danger.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            message,
+                            color = SafeTrackColors.Danger,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
 
@@ -104,53 +133,51 @@ fun ConnectScreen(viewModel: ConnectViewModel) {
                 Button(
                     onClick = viewModel::connect,
                     enabled = !state.verifying && viewModel.code.length == ConnectUiState.CODE_LENGTH,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = SafeTrackColors.Green),
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SafeTrackColors.Green,
+                        contentColor = Color.Black,
+                    ),
                 ) {
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         if (state.verifying) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            CircularProgressIndicator(modifier = Modifier.size(23.dp))
                         } else {
-                            Text("CONNECT", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("CONNECT WATCH", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                         }
                     }
                 }
             }
 
             item {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 4.dp)) {
-                    Text("Connection Status", fontSize = 11.sp, color = SafeTrackColors.TextMuted)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusDot(if (state.verifying) SafeTrackColors.Warning else SafeTrackColors.Danger, size = 9)
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            if (state.verifying) "Verifying…" else "Not Connected",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                        )
-                    }
-                }
+                StatusPill(
+                    label = if (state.verifying) "Verifying code" else "Waiting to link",
+                    color = if (state.verifying) SafeTrackColors.Warning else SafeTrackColors.Neutral,
+                )
             }
 
             item {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(top = 3.dp, bottom = 8.dp),
                 ) {
-                    Text("Watch ID", fontSize = 11.sp, color = SafeTrackColors.TextMuted)
+                    Eyebrow("Watch ID", color = SafeTrackColors.TextFaint)
                     Text(
                         state.watchId,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = SafeTrackColors.Mint,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                     Text(
-                        "Your guardian adds this ID in the SafeTrack app.",
-                        fontSize = 10.sp,
-                        color = SafeTrackColors.TextMuted,
+                        "This identifies this smartwatch during linking.",
+                        fontSize = 9.sp,
+                        lineHeight = 12.sp,
+                        color = SafeTrackColors.TextFaint,
                         textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                     )
                 }
             }
@@ -159,12 +186,8 @@ fun ConnectScreen(viewModel: ConnectViewModel) {
 }
 
 /**
- * Six code boxes. Tapping them opens the watch's own keyboard in number mode.
- *
- * Wear OS keyboards differ in what their ✓ key does (Done, another action, Enter,
- * or just closing the keyboard), so the code is submitted in every one of those
- * cases, and also as soon as the sixth digit arrives. Submitting twice is
- * harmless: the view model ignores a second call while verifying.
+ * Six code slots backed by the watch keyboard. Existing auto-submit behavior is
+ * preserved: reaching six digits or pressing the keyboard action calls [onDone].
  */
 @Composable
 private fun CodeField(code: String, enabled: Boolean, onChange: (String) -> Unit, onDone: () -> Unit) {
@@ -188,7 +211,10 @@ private fun CodeField(code: String, enabled: Boolean, onChange: (String) -> Unit
         },
         enabled = enabled,
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.NumberPassword,
+            imeAction = ImeAction.Done,
+        ),
         keyboardActions = KeyboardActions(
             onDone = { submit() },
             onGo = { submit() },
@@ -204,7 +230,6 @@ private fun CodeField(code: String, enabled: Boolean, onChange: (String) -> Unit
                 enter
             }
             .onFocusChanged { focus ->
-                // Keyboards whose ✓ only closes the keyboard.
                 if (!focus.isFocused && currentCode.length == ConnectUiState.CODE_LENGTH) onDone()
             }
             .semantics {
@@ -214,12 +239,11 @@ private fun CodeField(code: String, enabled: Boolean, onChange: (String) -> Unit
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CodeSlots(code)
                 Text(
-                    if (code.isEmpty()) "Tap to type the code" else "Tap to change",
-                    fontSize = 11.sp,
-                    color = SafeTrackColors.GreenLight,
-                    modifier = Modifier.padding(top = 3.dp),
+                    if (code.isEmpty()) "Tap the digits to enter your code" else "${code.length}/6 digits entered",
+                    fontSize = 9.sp,
+                    color = if (code.length == ConnectUiState.CODE_LENGTH) SafeTrackColors.Safe else SafeTrackColors.TextMuted,
+                    modifier = Modifier.padding(top = 5.dp),
                 )
-                // The real text field is invisible; the boxes above show the digits.
                 Box(Modifier.size(1.dp).alpha(0f)) { innerTextField() }
             }
         },
@@ -231,19 +255,35 @@ private fun CodeSlots(code: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         repeat(ConnectUiState.CODE_LENGTH) { index ->
             val digit = code.getOrNull(index)
+            val active = index == code.length && code.length < ConnectUiState.CODE_LENGTH
+            val filled = digit != null
             Box(
                 Modifier
-                    .size(width = 22.dp, height = 32.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(SafeTrackColors.SurfaceRaised)
+                    .size(width = 25.dp, height = 34.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(
+                        when {
+                            filled -> SafeTrackColors.SurfaceAccent
+                            else -> SafeTrackColors.SurfaceRaised
+                        },
+                    )
                     .border(
-                        1.5.dp,
-                        if (index == code.length) SafeTrackColors.GreenLight else Color.Transparent,
-                        RoundedCornerShape(6.dp),
+                        width = if (active || filled) 1.25.dp else 1.dp,
+                        color = when {
+                            active -> SafeTrackColors.GreenLight
+                            filled -> SafeTrackColors.Green.copy(alpha = 0.48f)
+                            else -> SafeTrackColors.Divider
+                        },
+                        shape = RoundedCornerShape(9.dp),
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(digit?.toString() ?: "", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(
+                    digit?.toString() ?: "•",
+                    fontSize = if (filled) 18.sp else 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (filled) SafeTrackColors.TextPrimary else SafeTrackColors.TextFaint,
+                )
             }
         }
     }
@@ -252,39 +292,63 @@ private fun CodeSlots(code: String) {
 /** Connection Success. */
 @Composable
 fun ConnectedScreen(childName: String, onContinue: () -> Unit) {
-    val listState = rememberScalingLazyListState()
+    val listState = rememberScalingLazyListState(initialCenterItemIndex = 1)
     ScreenScaffold(scrollState = listState) { contentPadding ->
         ScalingLazyColumn(
             state = listState,
             contentPadding = contentPadding,
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            item { ScreenTitle("SafeTrack") }
+            item { SafeTrackBrand() }
             item {
-                Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                    tint = SafeTrackColors.Safe,
-                    modifier = Modifier.size(40.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(SafeTrackColors.Safe.copy(alpha = 0.13f))
+                        .border(1.dp, SafeTrackColors.Safe.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = SafeTrackColors.Safe,
+                        modifier = Modifier.size(38.dp),
+                    )
+                }
             }
-            item { Text("Connected", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.White) }
             item {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(childName.ifBlank { "Child Profile" }, fontSize = 15.sp, color = SafeTrackColors.Mint)
-                    Text("Connected Successfully", fontSize = 12.sp, color = SafeTrackColors.TextMuted)
+                    Eyebrow("Watch linked")
+                    Text(
+                        childName.ifBlank { "Child Profile" },
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = SafeTrackColors.TextPrimary,
+                    )
+                    Text(
+                        "SafeTrack can now begin monitoring on this watch.",
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                        color = SafeTrackColors.TextMuted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                    )
                 }
             }
             item {
                 Button(
                     onClick = onContinue,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SafeTrackColors.Green),
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SafeTrackColors.Green,
+                        contentColor = Color.Black,
+                    ),
                 ) {
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("CONTINUE", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("CONTINUE", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                     }
                 }
             }

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,12 +46,11 @@ import com.safetrack.watch.app.theme.SafeTrackColors
 import kotlinx.coroutines.launch
 
 /**
- * Large round SOS button. It must be held for [HOLD_MS]; a ring fills while
- * holding. Releasing early does nothing. Completing the hold only opens the
- * cancellable countdown — it never sends an SOS directly.
+ * Large round SOS control. Existing behavior is unchanged: hold for 1.5 seconds
+ * to open the separate cancellable SOS confirmation countdown.
  */
 @Composable
-fun SosHoldButton(onHoldComplete: () -> Unit, size: Dp = 116.dp) {
+fun SosHoldButton(onHoldComplete: () -> Unit, size: Dp = 124.dp) {
     val progress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -62,8 +63,11 @@ fun SosHoldButton(onHoldComplete: () -> Unit, size: Dp = 116.dp) {
             .size(size)
             .semantics {
                 role = Role.Button
-                contentDescription = "SOS. Hold to send an emergency alert."
-                onLongClick(label = "Send SOS") { onComplete(); true }
+                contentDescription = "SOS. Press and hold to begin the emergency confirmation countdown."
+                onLongClick(label = "Begin SOS") {
+                    onComplete()
+                    true
+                }
             }
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -73,7 +77,6 @@ fun SosHoldButton(onHoldComplete: () -> Unit, size: Dp = 116.dp) {
                         val fill = scope.launch {
                             progress.snapTo(0f)
                             progress.animateTo(1f, tween(HOLD_MS, easing = LinearEasing))
-                            // Held long enough: open the countdown.
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             onComplete()
                             progress.snapTo(0f)
@@ -82,54 +85,84 @@ fun SosHoldButton(onHoldComplete: () -> Unit, size: Dp = 116.dp) {
                         holding = false
                         if (fill.isActive) {
                             fill.cancel()
-                            scope.launch { progress.animateTo(0f, tween(200)) }
+                            scope.launch { progress.animateTo(0f, tween(180)) }
                         }
                     },
                 )
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val stroke = 7.dp.toPx()
-            val inset = stroke / 2
+            val outerStroke = 2.dp.toPx()
+            val progressStroke = 7.dp.toPx()
+            val outerInset = outerStroke / 2
+            val progressInset = 8.dp.toPx()
+
             drawArc(
-                color = Color.White.copy(alpha = 0.18f),
+                color = SafeTrackColors.Danger.copy(alpha = 0.20f),
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = Size(this.size.width - stroke, this.size.height - stroke),
-                style = Stroke(stroke),
+                topLeft = Offset(outerInset, outerInset),
+                size = Size(this.size.width - outerStroke, this.size.height - outerStroke),
+                style = Stroke(outerStroke),
+            )
+            drawArc(
+                color = Color.White.copy(alpha = 0.14f),
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(progressInset, progressInset),
+                size = Size(this.size.width - progressInset * 2, this.size.height - progressInset * 2),
+                style = Stroke(progressStroke),
             )
             drawArc(
                 color = Color.White,
                 startAngle = -90f,
                 sweepAngle = 360f * progress.value,
                 useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = Size(this.size.width - stroke, this.size.height - stroke),
-                style = Stroke(stroke, cap = StrokeCap.Round),
+                topLeft = Offset(progressInset, progressInset),
+                size = Size(this.size.width - progressInset * 2, this.size.height - progressInset * 2),
+                style = Stroke(progressStroke, cap = StrokeCap.Round),
             )
         }
+
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .padding(11.dp)
+                .padding(17.dp)
                 .fillMaxSize()
                 .clip(CircleShape)
-                .background(if (holding) SafeTrackColors.DangerDeep else SafeTrackColors.Danger),
+                .background(if (holding) SafeTrackColors.DangerDeep else Color(0xFF5D171F))
+                .border(
+                    1.dp,
+                    if (holding) Color.White.copy(alpha = 0.30f) else SafeTrackColors.Danger.copy(alpha = 0.42f),
+                    CircleShape,
+                ),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("SOS", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.White)
                 Text(
-                    if (holding) "KEEP HOLDING" else "HOLD TO SEND",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
+                    "SOS",
+                    fontSize = 31.sp,
+                    fontWeight = FontWeight.Black,
                     color = Color.White,
                 )
+                Text(
+                    if (holding) "KEEP HOLDING" else "PRESS + HOLD",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White.copy(alpha = 0.92f),
+                    textAlign = TextAlign.Center,
+                )
+                if (!holding) {
+                    Text(
+                        "1.5 sec",
+                        fontSize = 8.sp,
+                        color = Color.White.copy(alpha = 0.62f),
+                    )
+                }
             }
         }
     }
-
 }
 
 private const val HOLD_MS = 1_500
