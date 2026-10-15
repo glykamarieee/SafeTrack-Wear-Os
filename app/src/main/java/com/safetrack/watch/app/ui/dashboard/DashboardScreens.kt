@@ -21,8 +21,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,6 +76,10 @@ fun DashboardScreen(
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val name by viewModel.childName.collectAsStateWithLifecycle()
     val listState = rememberScalingLazyListState(initialCenterItemIndex = 1)
+
+    Box(Modifier.fillMaxSize()) {
+    // Battery ring around the edge of the round screen.
+    BatteryEdgeRing(snapshot.device.batteryPercent)
 
     ScreenScaffold(scrollState = listState) { contentPadding ->
         ScalingLazyColumn(
@@ -253,6 +261,7 @@ fun DashboardScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -347,7 +356,7 @@ fun SafeZoneScreen(viewModel: DashboardViewModel) {
 
 /** Device / connection status. */
 @Composable
-fun StatusScreen(viewModel: DashboardViewModel) {
+fun StatusScreen(viewModel: DashboardViewModel, onReplayTour: () -> Unit = {}) {
     TrackVisibility(viewModel)
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val watchId by viewModel.watchId.collectAsStateWithLifecycle()
@@ -433,6 +442,54 @@ fun StatusScreen(viewModel: DashboardViewModel) {
                     )
                 }
             }
+
+            item {
+                Button(
+                    onClick = onReplayTour,
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                ) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("REPLAY TOUR", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
         }
+    }
+}
+
+/** A thin ring along the screen edge showing the battery level; amber at 20% or below. */
+@Composable
+private fun BatteryEdgeRing(percent: Int?) {
+    if (percent == null) return
+    val level = percent.coerceIn(0, 100) / 100f
+    val color = if (percent <= 20) SafeTrackColors.Warning else SafeTrackColors.Green
+    androidx.compose.foundation.Canvas(
+        Modifier
+            .fillMaxSize()
+            .padding(2.dp)
+            .semantics { contentDescription = "Battery $percent percent" },
+    ) {
+        val stroke = 4.dp.toPx()
+        val inset = stroke / 2
+        val arc = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+        drawArc(
+            color = SafeTrackColors.SurfaceDark,
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = arc,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke),
+        )
+        drawArc(
+            color = color,
+            startAngle = -90f,
+            sweepAngle = 360f * level,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = arc,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+        )
     }
 }

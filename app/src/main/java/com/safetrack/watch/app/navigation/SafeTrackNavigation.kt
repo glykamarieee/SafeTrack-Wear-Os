@@ -32,6 +32,8 @@ import com.safetrack.watch.app.ui.dashboard.StatusScreen
 import com.safetrack.watch.app.ui.permissions.Permissions
 import com.safetrack.watch.app.ui.permissions.PermissionsScreen
 import com.safetrack.watch.app.ui.sos.SosScreen
+import com.safetrack.watch.app.ui.tour.WatchTour
+import com.safetrack.watch.app.ui.tour.WatchTourPrefs
 import com.safetrack.watch.services.MonitoringService
 import com.safetrack.watch.services.sos.SyncWorker
 
@@ -58,6 +60,8 @@ fun SafeTrackRoot(container: AppContainer) {
     val hasLocation = remember(permissionCheck) { Permissions.hasLocation(context) }
     val hasBackground = remember(permissionCheck) { Permissions.hasBackgroundLocation(context) }
     var backgroundSkipped by rememberSaveable { mutableStateOf(false) }
+    // First-run tour: once per watch, replayable from the Status screen.
+    var showTour by rememberSaveable { mutableStateOf(!WatchTourPrefs.seen(context)) }
 
     val paired = session != null
     LaunchedEffect(paired, hasLocation) {
@@ -74,6 +78,11 @@ fun SafeTrackRoot(container: AppContainer) {
             justConnected != null -> ConnectedScreen(justConnected.orEmpty()) {
                 container.devices.acknowledgeConnected()
             }
+
+            paired && showTour -> WatchTour(onDone = {
+                WatchTourPrefs.markSeen(context)
+                showTour = false
+            })
 
             !paired -> {
                 val vm: ConnectViewModel = viewModel(
@@ -99,6 +108,7 @@ fun SafeTrackRoot(container: AppContainer) {
                 backgroundLocationGranted = hasBackground,
                 // Shows the "allow all the time" screen again.
                 onAllowBackgroundLocation = { backgroundSkipped = false },
+                onReplayTour = { showTour = true },
             )
         }
 
@@ -117,6 +127,7 @@ private fun MainNavigation(
     container: AppContainer,
     backgroundLocationGranted: Boolean,
     onAllowBackgroundLocation: () -> Unit,
+    onReplayTour: () -> Unit,
 ) {
     val navController = rememberSwipeDismissableNavController()
     val dashboard: DashboardViewModel = viewModel(
@@ -136,6 +147,6 @@ private fun MainNavigation(
             )
         }
         composable(Routes.SAFE_ZONE) { SafeZoneScreen(dashboard) }
-        composable(Routes.STATUS) { StatusScreen(dashboard) }
+        composable(Routes.STATUS) { StatusScreen(dashboard, onReplayTour = onReplayTour) }
     }
 }

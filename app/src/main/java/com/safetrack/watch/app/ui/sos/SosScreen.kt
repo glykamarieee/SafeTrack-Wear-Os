@@ -1,6 +1,10 @@
 package com.safetrack.watch.app.ui.sos
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -17,10 +21,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -36,8 +46,8 @@ import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.Text
 import com.safetrack.watch.app.theme.SafeTrackColors
-import com.safetrack.watch.app.ui.components.Eyebrow
 import com.safetrack.watch.domain.model.SosState
+import com.safetrack.watch.services.sos.SosController
 
 /**
  * Full-screen SOS flow, drawn over everything else whenever an SOS is active.
@@ -83,7 +93,7 @@ private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> U
         )
         SosState.Sending -> Sending()
         is SosState.Sent -> Message(
-            background = Color(0xFF071711),
+            background = Color.Black,
             title = "SOS sent",
             titleColor = SafeTrackColors.Safe,
             icon = {
@@ -101,7 +111,7 @@ private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> U
             onOk = onDismiss,
         )
         is SosState.Pending -> Message(
-            background = Color(0xFF1C1608),
+            background = Color.Black,
             title = "SOS waiting to send",
             titleColor = SafeTrackColors.Warning,
             icon = {
@@ -123,56 +133,74 @@ private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> U
 
 @Composable
 private fun Countdown(secondsLeft: Int, onCancel: () -> Unit) {
+    // The edge ring empties over the whole countdown, in step with the seconds.
+    val remaining = remember { Animatable(1f) }
+    LaunchedEffect(Unit) {
+        remaining.animateTo(0f, tween(SosController.COUNTDOWN_SECONDS * 1_000, easing = LinearEasing))
+    }
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF3F0D13)),
+            .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
+        Canvas(Modifier.fillMaxSize().padding(3.dp)) {
+            val stroke = 8.dp.toPx()
+            val inset = stroke / 2
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            drawArc(
+                color = SafeTrackColors.DangerDeep,
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(stroke),
+            )
+            drawArc(
+                color = SafeTrackColors.Danger,
+                startAngle = -90f,
+                sweepAngle = 360f * remaining.value,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(stroke, cap = StrokeCap.Round),
+            )
+        }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 20.dp),
+            modifier = Modifier.padding(horizontal = 24.dp),
         ) {
-            Eyebrow("Emergency confirmation", color = Color.White.copy(alpha = 0.70f))
             Text(
-                "SOS in",
-                fontSize = 18.sp,
+                "SENDING SOS IN",
+                fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
+                letterSpacing = 1.5.sp,
+                color = SafeTrackColors.Danger,
             )
-            Box(
-                modifier = Modifier
-                    .size(92.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .border(2.dp, SafeTrackColors.Danger.copy(alpha = 0.72f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    secondsLeft.toString(),
-                    fontSize = 50.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
-                )
-            }
             Text(
-                "Cancel now if this was accidental.",
-                fontSize = 10.sp,
-                color = Color.White.copy(alpha = 0.76f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(vertical = 6.dp),
+                secondsLeft.toString(),
+                fontSize = 76.sp,
+                lineHeight = 80.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = SafeTrackColors.TextPrimary,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
             )
+            Spacer(Modifier.height(4.dp))
             Button(
                 onClick = onCancel,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .border(2.dp, SafeTrackColors.TextPrimary, RoundedCornerShape(50)),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color(0xFF5C1119),
+                    containerColor = Color.Black,
+                    contentColor = SafeTrackColors.TextPrimary,
                 ),
             ) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("CANCEL SOS", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("CANCEL", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.5.sp)
                 }
             }
         }
@@ -184,7 +212,7 @@ private fun Sending() {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF3F0D13)),
+            .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
