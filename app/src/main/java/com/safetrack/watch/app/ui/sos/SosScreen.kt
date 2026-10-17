@@ -36,11 +36,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,11 +90,11 @@ import com.safetrack.watch.services.sos.SosController
  * Cancellation and sending behaviour are unchanged; only the look is new.
  */
 @Composable
-fun SosScreen(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit) {
+fun SosScreen(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit, onWithdraw: () -> Unit = {}) {
     BackHandler(enabled = state !is SosState.Idle) {
         when (state) {
             is SosState.Countdown -> onCancel()
-            is SosState.Sending -> Unit
+            is SosState.Sending, SosState.Withdrawing -> Unit
             else -> onDismiss()
         }
     }
@@ -109,20 +112,37 @@ fun SosScreen(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit) {
                 }
             },
     ) {
-        SosContent(state, onCancel, onDismiss)
+        SosContent(state, onCancel, onDismiss, onWithdraw)
     }
 }
 
 @Composable
-private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit) {
+private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit, onWithdraw: () -> Unit) {
+    // "Sent by mistake" asks once more, so a stray tap can't cancel a real SOS.
+    var confirmWithdraw by remember(state) { mutableStateOf(false) }
     // One sound per result (the countdown ticks are in Countdown).
     LaunchedEffect(state::class) {
         when (state) {
             SosState.Cancelled -> WatchSounds.play(WatchSounds.Effect.Cancel)
             is SosState.Sent -> WatchSounds.play(WatchSounds.Effect.Sent)
             is SosState.Pending -> WatchSounds.play(WatchSounds.Effect.Error)
+            is SosState.Withdrawn -> WatchSounds.play(if (state.done) WatchSounds.Effect.Cancel else WatchSounds.Effect.Error)
             else -> Unit
         }
+    }
+    if (confirmWithdraw && (state is SosState.Sent || state is SosState.Pending)) {
+        Message(
+            icon = Icons.Rounded.Warning,
+            accent = SafeTrackColors.Warning,
+            soft = SafeTrackColors.WarningSoft,
+            title = "Are you safe?",
+            lines = listOf("Only cancel if you're OK.", "Your guardian will be told."),
+            okLabel = "YES, I'M OK",
+            onOk = onWithdraw,
+            secondLabel = "NO, KEEP SOS",
+            onSecond = { confirmWithdraw = false },
+        )
+        return
     }
     when (state) {
         SosState.Idle -> Unit
@@ -146,6 +166,8 @@ private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> U
             ),
             celebrate = true,
             onOk = onDismiss,
+            secondLabel = "SENT BY MISTAKE",
+            onSecond = { confirmWithdraw = true },
         )
         is SosState.Pending -> Message(
             icon = Icons.Rounded.Refresh,
@@ -154,7 +176,38 @@ private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> U
             title = "SOS waiting",
             lines = listOf("No connection right now.", "It sends when you're back online."),
             onOk = onDismiss,
+            secondLabel = "SENT BY MISTAKE",
+            onSecond = { confirmWithdraw = true },
         )
+        SosState.Withdrawing -> Message(
+            icon = Icons.Rounded.Refresh,
+            accent = SafeTrackColors.Neutral,
+            soft = SafeTrackColors.NeutralSoft,
+            title = "Cancelling SOS…",
+            lines = listOf("Telling your guardian", "you're OK."),
+        )
+        is SosState.Withdrawn -> if (state.done) {
+            Message(
+                icon = Icons.Rounded.CheckCircle,
+                accent = SafeTrackColors.Green,
+                soft = SafeTrackColors.Mint,
+                title = "SOS cancelled",
+                lines = listOf("Your guardian was told", "it was a mistake."),
+                onOk = onDismiss,
+            )
+        } else {
+            Message(
+                icon = Icons.Rounded.Warning,
+                accent = SafeTrackColors.Warning,
+                soft = SafeTrackColors.WarningSoft,
+                title = "Not cancelled",
+                lines = listOf("No connection right now.", "Tell your guardian you're OK."),
+                okLabel = "TRY AGAIN",
+                onOk = onWithdraw,
+                secondLabel = "CLOSE",
+                onSecond = onDismiss,
+            )
+        }
     }
 }
 
@@ -317,7 +370,10 @@ private fun Message(
     title: String,
     lines: List<String>,
     celebrate: Boolean = false,
+    okLabel: String = "DONE",
     onOk: (() -> Unit)? = null,
+    secondLabel: String? = null,
+    onSecond: (() -> Unit)? = null,
 ) {
     val reduce = LocalReduceMotion.current
     val pop = remember { Animatable(if (reduce) 1f else 0.4f) }
@@ -397,7 +453,12 @@ private fun Message(
                 }
                 if (onOk != null) {
                     item {
-                        PillButton(label = "DONE", onClick = onOk, style = PillStyle.Primary, modifier = Modifier.padding(top = 4.dp).width(110.dp))
+                        PillButton(label = okLabel, onClick = onOk, style = PillStyle.Primary, modifier = Modifier.padding(top = 4.dp).width(130.dp))
+                    }
+                }
+                if (secondLabel != null && onSecond != null) {
+                    item {
+                        PillButton(label = secondLabel, onClick = onSecond, style = PillStyle.Outline, modifier = Modifier.width(150.dp))
                     }
                 }
             }

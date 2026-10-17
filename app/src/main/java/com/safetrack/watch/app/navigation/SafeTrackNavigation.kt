@@ -121,6 +121,7 @@ fun SafeTrackRoot(container: AppContainer) {
                 state = sosState,
                 onCancel = container.sosController::cancel,
                 onDismiss = container.sosController::dismiss,
+                onWithdraw = container.sosController::withdraw,
             )
         }
     }

@@ -90,8 +90,13 @@ sealed interface SosState {
     data class Countdown(val activation: SosActivation, val secondsLeft: Int) : SosState
     data object Cancelled : SosState
     data object Sending : SosState
-    data class Sent(val locationIncluded: Boolean) : SosState
+    /** [alertId]: SafeTrack's id for the alert, used to cancel it if it was a mistake. */
+    data class Sent(val locationIncluded: Boolean, val alertId: String? = null) : SosState
     data class Pending(val locationIncluded: Boolean) : SosState
+    /** The child said the SOS was a mistake; cancelling it. */
+    data object Withdrawing : SosState
+    /** [done]: the SOS is cancelled and the guardian told; false when SafeTrack couldn't be reached. */
+    data class Withdrawn(val done: Boolean) : SosState
 }
 
 /** Everything the dashboard needs, kept in one place for the UI and services. */

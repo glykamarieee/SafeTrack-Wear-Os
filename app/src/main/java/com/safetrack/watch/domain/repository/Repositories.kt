@@ -57,4 +57,13 @@ interface SosRepository {
 
     /** Sends every pending SOS, oldest first. True when none remain. */
     suspend fun transmitAll(): Boolean
+
+    /** SafeTrack's id for an SOS this watch delivered since the app started, if known. */
+    fun deliveredAlertId(localId: String): String?
+
+    /** Removes an SOS that hasn't been sent yet, so it is never sent. */
+    suspend fun discard(localId: String)
+
+    /** Cancels a delivered SOS sent by mistake (the guardian is told). True when it is no longer active. */
+    suspend fun cancelDelivered(alertId: String): Boolean
 }

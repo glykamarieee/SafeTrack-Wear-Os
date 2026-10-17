@@ -104,6 +104,8 @@ private fun Preview(screen: String) {
         "sent" -> SosScreen(SosState.Sent(locationIncluded = true), {}, {})
         "pending" -> SosScreen(SosState.Pending(locationIncluded = false), {}, {})
         "cancelled" -> SosScreen(SosState.Cancelled, {}, {})
+        "withdrawn" -> SosScreen(SosState.Withdrawn(done = true), {}, {})
+        "withdraw-failed" -> SosScreen(SosState.Withdrawn(done = false), {}, {})
     }
 }
 

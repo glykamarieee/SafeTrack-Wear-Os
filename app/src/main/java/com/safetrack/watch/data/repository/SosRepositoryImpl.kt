@@ -28,6 +28,9 @@ class SosRepositoryImpl(
     /** One SOS send at a time, so two retry paths never race each other. */
     private val mutex = Mutex()
 
+    /** localId -> SafeTrack alert id, for "sent by mistake". */
+    private val delivered = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     override val pending: Flow<List<PendingSos>> = store.pendingSos
 
     override suspend fun save(sos: PendingSos) {
@@ -69,6 +72,7 @@ class SosRepositoryImpl(
         when (result) {
             is WatchLink.Result.Delivered -> {
                 Log.i(TAG, "SOS ${sos.localId} recorded as ${result.response.string("sosAlertId")}")
+                result.response.string("sosAlertId")?.let { delivered[sos.localId] = it }
                 remove(localId)
                 if (location != null && sos.location == null) store.setPendingLocation(null)
                 true
@@ -93,6 +97,25 @@ class SosRepositoryImpl(
             put("p_activation_method", sos.activation)
             put("p_triggered_at", sos.triggeredAt)
             location?.let { putLocation(it) }
+        }
+
+    override fun deliveredAlertId(localId: String): String? = delivered[localId]
+
+    override suspend fun discard(localId: String) = mutex.withLock {
+        Log.i(TAG, "SOS $localId withdrawn before it was sent")
+        remove(localId)
+    }
+
+    override suspend fun cancelDelivered(alertId: String): Boolean =
+        when (val result = link.send("cancel_watch_sos") { put("p_sos_alert_id", alertId) }) {
+            is WatchLink.Result.Delivered -> {
+                Log.i(TAG, "SOS $alertId cancelled: ${result.response.string("status")}")
+                true
+            }
+            is WatchLink.Result.Failed -> {
+                Log.w(TAG, "SOS $alertId could not be cancelled (retryable=${result.retryable})")
+                false
+            }
         }
 
     override suspend fun transmitAll(): Boolean {

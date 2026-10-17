@@ -44,6 +44,10 @@ class SosController(
     private var countdown: Job? = null
     private var autoReturn: Job? = null
 
+    // The last confirmed SOS, for "sent by mistake".
+    private var lastLocalId: String? = null
+    private var lastAlertId: String? = null
+
     /** Starts the countdown. Ignored while another SOS is counting down or sending. */
     fun trigger(activation: SosActivation): Boolean {
         if (devices.session.value == null) return false
@@ -82,9 +86,36 @@ class SosController(
     /** Closes the Sent / Pending / Cancelled screen. */
     fun dismiss() {
         val current = _state.value
-        if (current is SosState.Sent || current is SosState.Pending || current is SosState.Cancelled) {
+        if (current is SosState.Sent || current is SosState.Pending || current is SosState.Cancelled || current is SosState.Withdrawn) {
             autoReturn?.cancel()
             _state.value = SosState.Idle
+        }
+    }
+
+    /**
+     * "I'm OK – sent by mistake" on the Sent or Pending screen (or Try again
+     * after a failed attempt). An unsent SOS is dropped from the queue; a sent
+     * one is cancelled on SafeTrack, which tells the guardian.
+     */
+    fun withdraw() {
+        val current = _state.value
+        val retry = current is SosState.Withdrawn && !current.done
+        if (current !is SosState.Sent && current !is SosState.Pending && !retry) return
+        val localId = lastLocalId ?: return
+
+        autoReturn?.cancel()
+        _state.value = SosState.Withdrawing
+        scope.launch {
+            val done = withContext(NonCancellable) {
+                sos.discard(localId)
+                val alertId = (current as? SosState.Sent)?.alertId ?: lastAlertId ?: sos.deliveredAlertId(localId)
+                lastAlertId = alertId
+                // Nothing reached SafeTrack (still pending): dropping it is enough.
+                if (alertId == null) current is SosState.Pending else sos.cancelDelivered(alertId)
+            }
+            Log.i(TAG, "SOS withdrawn by the child (done=$done)")
+            if (done) alerts.cancelled()
+            showThenReturn(SosState.Withdrawn(done), if (done) RESULT_SCREEN_MS else SENT_SCREEN_MS)
         }
     }
 
@@ -99,6 +130,7 @@ class SosController(
 
         // Save first, with whatever location is already known, so the SOS
         // survives if the app is killed while a fresh fix is being obtained.
+        lastAlertId = null
         var record = PendingSos(
             localId = UUID.randomUUID().toString(),
             childId = session.childId,
@@ -107,6 +139,7 @@ class SosController(
             location = location.recentKnown(),
         )
         sos.save(record)
+        lastLocalId = record.localId
         Log.i(TAG, "SOS confirmed and saved (${record.localId})")
 
         location.locationForSos()?.let { fresh ->
@@ -120,11 +153,12 @@ class SosController(
 
         if (sent) {
             Log.i(TAG, "SOS transmitted (${record.localId})")
-            showThenReturn(SosState.Sent(hasLocation), RESULT_SCREEN_MS)
+            lastAlertId = sos.deliveredAlertId(record.localId)
+            showThenReturn(SosState.Sent(hasLocation, lastAlertId), SENT_SCREEN_MS)
         } else {
             Log.w(TAG, "SOS pending; retry scheduled (${record.localId})")
             scheduleRetry()
-            showThenReturn(SosState.Pending(hasLocation), RESULT_SCREEN_MS)
+            showThenReturn(SosState.Pending(hasLocation), SENT_SCREEN_MS)
         }
     }
 
@@ -143,5 +177,7 @@ class SosController(
         const val COUNTDOWN_SECONDS = 5
         const val CANCELLED_SCREEN_MS = 2_500L
         const val RESULT_SCREEN_MS = 12_000L
+        // Long enough to notice a mistake and tap "Sent by mistake".
+        const val SENT_SCREEN_MS = 30_000L
     }
 }
