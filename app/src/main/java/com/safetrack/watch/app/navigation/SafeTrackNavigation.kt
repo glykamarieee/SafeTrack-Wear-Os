@@ -60,7 +60,8 @@ fun SafeTrackRoot(container: AppContainer) {
     val hasLocation = remember(permissionCheck) { Permissions.hasLocation(context) }
     val hasBackground = remember(permissionCheck) { Permissions.hasBackgroundLocation(context) }
     var backgroundSkipped by rememberSaveable { mutableStateOf(false) }
-    // First-run tour: once per watch, replayable from the Status screen.
+    // Dashboard tour: after each pairing (and on a watch's first run),
+    // replayable from the Status screen.
     var showTour by rememberSaveable { mutableStateOf(!WatchTourPrefs.seen(context)) }
 
     val paired = session != null
@@ -75,7 +76,10 @@ fun SafeTrackRoot(container: AppContainer) {
 
     Box(Modifier.fillMaxSize()) {
         when {
+            // Every new pairing: Connected, then the dashboard tour, even when
+            // this watch saw the tour before (e.g. paired to another child).
             justConnected != null -> ConnectedScreen(justConnected.orEmpty()) {
+                showTour = true
                 container.devices.acknowledgeConnected()
             }
 
