@@ -87,6 +87,23 @@ class LocationTracker(
         callback = null
     }
 
+    // The last fix sent to SafeTrack (a "record").
+    private var lastSaved: Location? = null
+
+    /**
+     * Fixes arrive every [UPDATE_INTERVAL_MS]. Moving: each one [MOVE_SAVE_M]
+     * or more from the last record is saved, so trips are drawn along the
+     * real streets. Staying still: one record every [STILL_SAVE_MS].
+     */
+    private fun shouldSave(location: Location): Boolean {
+        val last = lastSaved ?: return true
+        if (location.time - last.time >= STILL_SAVE_MS) return true
+        val moved = location.distanceTo(last)
+        // Ignore wobble smaller than the two fixes' accuracy.
+        val noise = maxOf(if (location.hasAccuracy()) location.accuracy else 0f, if (last.hasAccuracy()) last.accuracy else 0f)
+        return moved >= maxOf(MOVE_SAVE_M, noise)
+    }
+
     private fun onFix(location: Location) {
         if (location.hasAccuracy() && location.accuracy > MAX_ACCEPTED_ACCURACY_M) {
             Log.d(TAG, "Ignoring coarse fix (${location.accuracy} m)")
@@ -94,6 +111,8 @@ class LocationTracker(
         }
         val fix = location.toWatchLocation()
         _latest.value = fix
+        if (!shouldSave(location)) return
+        lastSaved = location
         scope.launch {
             withWakeLock(appContext, "location") { monitoring.reportLocation(fix) }
         }
@@ -160,9 +179,15 @@ class LocationTracker(
     companion object {
         private const val TAG = "LocationTracker"
 
-        /** Periodic updates while monitoring: frequent enough for a guardian, gentle on the battery. */
-        const val UPDATE_INTERVAL_MS = 3 * 60_000L
-        const val MIN_UPDATE_INTERVAL_MS = 60_000L
+        /** Location checks while monitoring; only some become records (see shouldSave). */
+        const val UPDATE_INTERVAL_MS = 20_000L
+        const val MIN_UPDATE_INTERVAL_MS = 10_000L
+
+        /** Moving: a record every time the child is this far from the last one. */
+        const val MOVE_SAVE_M = 25f
+
+        /** Staying still: one record this often, as before. */
+        const val STILL_SAVE_MS = 3 * 60_000L
 
         /** Fixes this coarse are not useful for safe zones. */
         const val MAX_ACCEPTED_ACCURACY_M = 1_000f
