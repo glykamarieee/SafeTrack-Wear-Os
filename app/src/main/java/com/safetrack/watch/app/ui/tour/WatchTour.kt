@@ -77,7 +77,7 @@ private data class TourPage(val title: String, val body: String, val art: @Compo
 fun WatchTour(onDone: () -> Unit) {
     val pages = listOf(
         TourPage("Hold for SOS", "Hold SOS until the ring fills, or shake your watch.") { HoldArt() },
-        TourPage("You can cancel", "A 3-second countdown follows. Tap CANCEL if it was a mistake.") { CountdownArt() },
+        TourPage("You can cancel", "A 5-second countdown follows. Tap CANCEL if it was a mistake.") { CountdownArt() },
         TourPage("Keep it ready", "Keep your watch charged and online so your guardian gets updates.") { BatteryArt() },
         TourPage("Allow location", "Next, choose \"Allow all the time\" so it keeps working after a restart.") { PinArt() },
     )

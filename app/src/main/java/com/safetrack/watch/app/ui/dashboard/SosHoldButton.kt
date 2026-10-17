@@ -55,7 +55,7 @@ import kotlinx.coroutines.launch
 
 /**
  * The big round SOS control, the "heart" of the dashboard. Behaviour is
- * unchanged: hold for 1.5 seconds to open the separate, cancellable SOS
+ * hold for 3 seconds to open the separate, cancellable SOS
  * countdown.
  *
  * - Idle: a slow breathing glow.
@@ -197,4 +197,5 @@ fun SosHoldButton(onHoldComplete: () -> Unit, size: Dp = 118.dp) {
     }
 }
 
-private const val HOLD_MS = 1_500
+// Long enough that a bump, grip or brief press doesn't start an SOS.
+private const val HOLD_MS = 3_000

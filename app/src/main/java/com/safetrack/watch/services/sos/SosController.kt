@@ -139,7 +139,8 @@ class SosController(
 
     companion object {
         private const val TAG = "SosController"
-        const val COUNTDOWN_SECONDS = 3
+        // Time to notice and cancel a mistaken SOS (same as the phone app).
+        const val COUNTDOWN_SECONDS = 5
         const val CANCELLED_SCREEN_MS = 2_500L
         const val RESULT_SCREEN_MS = 12_000L
     }
