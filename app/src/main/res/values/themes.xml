@@ -4,7 +4,7 @@
     <color name="safetrack_background">#F6FAF7</color>
     <!-- SafeTrack green behind the white logo on the splash. -->
     <color name="safetrack_splash">#15803D</color>
-    <color name="safetrack_icon_bg">#0B2A1D</color>
+    <color name="safetrack_icon_bg">#FFFFFF</color>
 
     <style name="Theme.SafeTrack" parent="android:Theme.DeviceDefault">
         <item name="android:windowBackground">@color/safetrack_background</item>
