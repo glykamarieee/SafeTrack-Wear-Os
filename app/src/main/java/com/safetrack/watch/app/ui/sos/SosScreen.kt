@@ -76,6 +76,7 @@ import com.safetrack.watch.app.theme.LocalReduceMotion
 import com.safetrack.watch.app.theme.SafeTrackColors
 import com.safetrack.watch.app.ui.components.PillButton
 import com.safetrack.watch.app.ui.components.PillStyle
+import com.safetrack.watch.app.ui.components.WatchSounds
 import com.safetrack.watch.app.ui.components.rememberPulse
 import com.safetrack.watch.app.ui.components.roundInset
 import com.safetrack.watch.domain.model.SosState
@@ -114,6 +115,15 @@ fun SosScreen(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit) {
 
 @Composable
 private fun SosContent(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit) {
+    // One sound per result (the countdown ticks are in Countdown).
+    LaunchedEffect(state::class) {
+        when (state) {
+            SosState.Cancelled -> WatchSounds.play(WatchSounds.Effect.Cancel)
+            is SosState.Sent -> WatchSounds.play(WatchSounds.Effect.Sent)
+            is SosState.Pending -> WatchSounds.play(WatchSounds.Effect.Error)
+            else -> Unit
+        }
+    }
     when (state) {
         SosState.Idle -> Unit
         is SosState.Countdown -> Countdown(state.secondsLeft, onCancel)
@@ -161,7 +171,10 @@ private fun Countdown(secondsLeft: Int, onCancel: () -> Unit) {
         remaining.animateTo(0f, tween(SosController.COUNTDOWN_SECONDS * 1_000, easing = LinearEasing))
     }
     // A tick on every second.
-    LaunchedEffect(secondsLeft) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+    LaunchedEffect(secondsLeft) {
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        WatchSounds.play(WatchSounds.Effect.Tick)
+    }
     val cancelPulse = rememberPulse(700, still = 0f)
 
     // No time text over the urgent red screen.
