@@ -104,11 +104,14 @@ fun SosScreen(state: SosState, onCancel: () -> Unit, onDismiss: () -> Unit, onWi
     Box(
         Modifier
             .fillMaxSize()
+            // Being a pointer-input node is enough to keep touches from reaching
+            // the dashboard underneath (only the top sibling is hit). It must
+            // not consume them: buttons cancel a tap whose events are consumed
+            // in the Final pass, which made CANCEL, DONE and SENT BY MISTAKE
+            // ignore most taps.
             .pointerInput(Unit) {
                 awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent(PointerEventPass.Final).changes.forEach { it.consume() }
-                    }
+                    while (true) awaitPointerEvent(PointerEventPass.Final)
                 }
             },
     ) {
