@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -34,6 +35,7 @@ class MonitoringService : LifecycleService() {
     private lateinit var heartbeat: HeartbeatLoop
     private lateinit var shake: ShakeDetector
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var validatedNetwork: Network? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -111,14 +113,29 @@ class MonitoringService : LifecycleService() {
         val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                // Communication is back: pending SOS goes first.
+                // Communication is back: pending SOS goes first, then a new location.
                 lifecycleScope.launch {
                     container.monitoring.refreshDeviceStatus()
                     heartbeat.syncNow(force = true)
+                    container.location.refreshNow()
+                }
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                // Wi-Fi is often connected before it has working internet.
+                val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                if (validated && validatedNetwork != network) {
+                    validatedNetwork = network
+                    lifecycleScope.launch {
+                        container.monitoring.refreshDeviceStatus()
+                        heartbeat.syncNow(force = true)
+                        container.location.refreshNow()
+                    }
                 }
             }
 
             override fun onLost(network: Network) {
+                if (validatedNetwork == network) validatedNetwork = null
                 lifecycleScope.launch { container.monitoring.refreshDeviceStatus() }
             }
         }

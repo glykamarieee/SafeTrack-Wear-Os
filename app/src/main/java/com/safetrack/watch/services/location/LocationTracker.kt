@@ -65,7 +65,9 @@ class LocationTracker(
             }
 
             override fun onLocationAvailability(availability: LocationAvailability) {
-                monitoring.setLocationAvailable(availability.isLocationAvailable)
+                monitoring.setLocationAvailable(
+                    isLocationUsable(availability.isLocationAvailable, lastFixAtMillis, System.currentTimeMillis()),
+                )
             }
         }
         callback = cb
@@ -74,6 +76,8 @@ class LocationTracker(
             client.requestLocationUpdates(request, cb, Looper.getMainLooper())
                 .addOnFailureListener { e ->
                     Log.w(TAG, "Location updates unavailable", e)
+                    // Not running: let the next start() or refreshNow() try again.
+                    if (callback === cb) callback = null
                     monitoring.setLocationAvailable(false)
                 }
         } catch (e: SecurityException) {
@@ -90,6 +94,44 @@ class LocationTracker(
     // The last fix sent to SafeTrack (a "record").
     private var lastSaved: Location? = null
 
+    // When the last usable fix arrived, saved as a record or not.
+    private var lastFixAtMillis: Long? = null
+
+    @Volatile
+    private var refreshing = false
+
+    /**
+     * Called when the network returns: restarts location updates and asks for a
+     * new fix straight away, so the watch doesn't wait for the next update.
+     */
+    @SuppressLint("MissingPermission")
+    suspend fun refreshNow() {
+        if (refreshing || !hasPermission()) return
+        refreshing = true
+        stop()
+        start()
+
+        val cancel = CancellationTokenSource()
+        try {
+            val fresh = withTimeoutOrNull(REFRESH_FIX_TIMEOUT_MS) {
+                client.getCurrentLocation(
+                    CurrentLocationRequest.Builder()
+                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                        .setMaxUpdateAgeMillis(0)
+                        .setDurationMillis(REFRESH_FIX_TIMEOUT_MS)
+                        .build(),
+                    cancel.token,
+                ).await()
+            }
+            if (fresh != null) onFix(fresh, alwaysSave = true)
+        } catch (e: Exception) {
+            Log.w(TAG, "Location refresh failed", e)
+        } finally {
+            cancel.cancel()
+            refreshing = false
+        }
+    }
+
     /**
      * Fixes arrive every [UPDATE_INTERVAL_MS]. Moving: each one [MOVE_SAVE_M]
      * or more from the last record is saved, so trips are drawn along the
@@ -104,14 +146,17 @@ class LocationTracker(
         return moved >= maxOf(MOVE_SAVE_M, noise)
     }
 
-    private fun onFix(location: Location) {
+    private fun onFix(location: Location, alwaysSave: Boolean = false) {
         if (location.hasAccuracy() && location.accuracy > MAX_ACCEPTED_ACCURACY_M) {
             Log.d(TAG, "Ignoring coarse fix (${location.accuracy} m)")
             return
         }
         val fix = location.toWatchLocation()
         _latest.value = fix
-        if (!shouldSave(location)) return
+        lastFixAtMillis = System.currentTimeMillis()
+        // Any usable fix means location works, even if this one isn't saved.
+        monitoring.setLocationAvailable(true)
+        if (!alwaysSave && !shouldSave(location)) return
         lastSaved = location
         scope.launch {
             withWakeLock(appContext, "location") { monitoring.reportLocation(fix) }
@@ -195,5 +240,15 @@ class LocationTracker(
         const val SOS_FIX_TIMEOUT_MS = 6_000L
         const val SOS_MAX_FIX_AGE_MS = 30_000L
         const val RECENT_FIX_MAX_AGE_MS = 30 * 60_000L
+
+        const val REFRESH_FIX_TIMEOUT_MS = 30_000L
+
+        /** A fix this recent still counts as location working. */
+        const val USABLE_FIX_MAX_AGE_MS = 2 * 60_000L
+
+        /** The system can briefly report no location between otherwise good fixes. */
+        fun isLocationUsable(systemAvailable: Boolean, lastFixAtMillis: Long?, nowMillis: Long): Boolean =
+            systemAvailable ||
+                (lastFixAtMillis != null && nowMillis - lastFixAtMillis <= USABLE_FIX_MAX_AGE_MS)
     }
 }

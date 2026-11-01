@@ -2,8 +2,11 @@ package com.safetrack.watch
 
 import com.safetrack.watch.app.ui.components.timeAgo
 import com.safetrack.watch.domain.model.SafeZoneStatus
+import com.safetrack.watch.services.location.LocationTracker
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SafeTrackLogicTest {
@@ -27,6 +30,15 @@ class SafeTrackLogicTest {
     fun `unknown or missing status leaves the safe zone unchanged`() {
         assertNull(SafeZoneStatus.fromServer(null, null))
         assertNull(SafeZoneStatus.fromServer("something_new", "Home"))
+    }
+
+    @Test
+    fun `a recent fix keeps location available when the system says otherwise`() {
+        val now = 10_000_000_000L
+        assertTrue(LocationTracker.isLocationUsable(true, null, now))
+        assertTrue(LocationTracker.isLocationUsable(false, now - 60_000, now))
+        assertFalse(LocationTracker.isLocationUsable(false, now - 3 * 60_000, now))
+        assertFalse(LocationTracker.isLocationUsable(false, null, now))
     }
 
     @Test
