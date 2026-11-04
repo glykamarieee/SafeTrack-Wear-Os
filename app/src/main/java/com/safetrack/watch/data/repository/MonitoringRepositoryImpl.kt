@@ -85,7 +85,7 @@ class MonitoringRepositoryImpl(
         refreshDeviceStatus()
 
         locationMutex.withLock {
-            when (val result = link.send("record_watch_location") { putLocation(location) }) {
+            when (val result = sendLocation(location)) {
                 is WatchLink.Result.Delivered -> store.setPendingLocation(null)
                 // Keep only the newest fix; older offline fixes are superseded.
                 is WatchLink.Result.Failed -> if (result.retryable) store.setPendingLocation(location)
@@ -93,10 +93,27 @@ class MonitoringRepositoryImpl(
         }
     }
 
+    // record_watch_location_v2 (migration 20261104) also stores speed and
+    // travel mode. Until it exists, use the original and stop trying v2.
+    @Volatile
+    private var motionFunction = true
+
+    private suspend fun sendLocation(location: WatchLocation): WatchLink.Result {
+        if (motionFunction) {
+            val result = link.send("record_watch_location_v2") {
+                putLocation(location)
+                putMotion(location)
+            }
+            if (result !is WatchLink.Result.Failed || !result.missingFunction) return result
+            motionFunction = false
+        }
+        return link.send("record_watch_location") { putLocation(location) }
+    }
+
     override suspend fun flushPendingLocation() {
         locationMutex.withLock {
             val pending = store.pendingLocation() ?: return
-            when (val result = link.send("record_watch_location") { putLocation(pending) }) {
+            when (val result = sendLocation(pending)) {
                 is WatchLink.Result.Delivered -> store.setPendingLocation(null)
                 is WatchLink.Result.Failed -> if (!result.retryable) store.setPendingLocation(null)
             }
@@ -125,4 +142,11 @@ internal fun JsonObjectBuilder.putLocation(location: WatchLocation) {
     put("p_longitude", location.longitude)
     location.accuracyMeters?.let { put("p_accuracy_meters", it) }
     put("p_recorded_at", Iso.format(location.recordedAtMillis))
+}
+
+internal fun JsonObjectBuilder.putMotion(location: WatchLocation) {
+    location.speedMps?.let { put("p_speed_mps", it) }
+    location.headingDegrees?.let { put("p_heading_degrees", it) }
+    location.travelMode?.let { put("p_travel_mode", it) }
+    location.modeConfidence?.let { put("p_mode_confidence", (it * 100).toInt() / 100f) }
 }

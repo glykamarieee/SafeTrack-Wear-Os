@@ -68,7 +68,7 @@ class MonitoringService : LifecycleService() {
     override fun onDestroy() {
         if (::heartbeat.isInitialized) heartbeat.stop()
         if (::shake.isInitialized) shake.stop()
-        container.location.stop()
+        container.location.shutdown()
         networkCallback?.let { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(it) }
         networkCallback = null
         super.onDestroy()

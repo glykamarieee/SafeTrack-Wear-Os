@@ -2,7 +2,10 @@ package com.safetrack.watch
 
 import com.safetrack.watch.app.ui.components.timeAgo
 import com.safetrack.watch.domain.model.SafeZoneStatus
+import com.google.android.gms.location.DetectedActivity
+import com.safetrack.watch.services.location.ActivityTracker
 import com.safetrack.watch.services.location.LocationTracker
+import com.safetrack.watch.services.location.TravelMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -39,6 +42,33 @@ class SafeTrackLogicTest {
         assertTrue(LocationTracker.isLocationUsable(false, now - 60_000, now))
         assertFalse(LocationTracker.isLocationUsable(false, now - 3 * 60_000, now))
         assertFalse(LocationTracker.isLocationUsable(false, null, now))
+    }
+
+    @Test
+    fun `travel mode from speed`() {
+        assertEquals(TravelMode.UNKNOWN, TravelMode.fromSpeed(null, 10f).mode)
+        assertEquals(TravelMode.STILL, TravelMode.fromSpeed(0.3f, 10f).mode)
+        assertEquals(TravelMode.WALKING, TravelMode.fromSpeed(1.4f, 10f).mode)
+        assertEquals(TravelMode.RUNNING, TravelMode.fromSpeed(3f, 10f).mode)
+        assertEquals(TravelMode.BIKING, TravelMode.fromSpeed(5f, 10f).mode)
+        assertEquals(TravelMode.VEHICLE, TravelMode.fromSpeed(12f, 10f).mode)
+        // A coarse fix lowers the confidence.
+        assertTrue(TravelMode.fromSpeed(1.4f, 100f).confidence < TravelMode.fromSpeed(1.4f, 10f).confidence)
+    }
+
+    @Test
+    fun `activity recognition refines speed unless they clearly disagree`() {
+        val now = 10_000_000L
+        val bike = ActivityTracker.Detected(DetectedActivity.ON_BICYCLE, 80, now - 10_000)
+        assertEquals(TravelMode.BIKING, TravelMode.combine(TravelMode.fromSpeed(3f, 10f), bike, now, 3f).mode)
+        // "Still" while moving 12 m/s: speed wins.
+        val still = ActivityTracker.Detected(DetectedActivity.STILL, 90, now - 10_000)
+        assertEquals(TravelMode.VEHICLE, TravelMode.combine(TravelMode.fromSpeed(12f, 10f), still, now, 12f).mode)
+        // Old or unsure activity is ignored.
+        val old = ActivityTracker.Detected(DetectedActivity.IN_VEHICLE, 90, now - 5 * 60_000)
+        assertEquals(TravelMode.WALKING, TravelMode.combine(TravelMode.fromSpeed(1.4f, 10f), old, now, 1.4f).mode)
+        val unsure = ActivityTracker.Detected(DetectedActivity.IN_VEHICLE, 40, now)
+        assertEquals(TravelMode.WALKING, TravelMode.combine(TravelMode.fromSpeed(1.4f, 10f), unsure, now, 1.4f).mode)
     }
 
     @Test

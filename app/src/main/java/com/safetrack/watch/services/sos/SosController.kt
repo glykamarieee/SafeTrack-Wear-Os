@@ -142,6 +142,9 @@ class SosController(
         lastLocalId = record.localId
         Log.i(TAG, "SOS confirmed and saved (${record.localId})")
 
+        // The guardian follows the child closely for the next 10 minutes.
+        location.boostForSos()
+
         location.locationForSos()?.let { fresh ->
             record = record.copy(location = fresh)
             sos.save(record)

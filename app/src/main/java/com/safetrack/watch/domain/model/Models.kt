@@ -58,6 +58,11 @@ data class WatchLocation(
     val accuracyMeters: Float?,
     val recordedAtMillis: Long,
     val source: String = "smartwatch",
+    /** Since 2026-11-04 (record_watch_location_v2); null on older saved fixes. */
+    val speedMps: Float? = null,
+    val headingDegrees: Float? = null,
+    val travelMode: String? = null,
+    val modeConfidence: Float? = null,
 )
 
 /** Values must match sos_alerts_activation_method_check. */

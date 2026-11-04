@@ -30,6 +30,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * The watch's own GNSS/fused location: the primary location source for the child.
  * Periodic updates are sent to SafeTrack; the newest fix is also kept for SOS.
+ *
+ * Adaptive, to keep the guardian's map live without draining the battery:
+ *  - moving: high-accuracy fixes every [MOVING_INTERVAL_MS], a record each
+ *    [MOVE_SAVE_M] (the guardian sees the trip as it happens);
+ *  - still for [STILL_AFTER_MS]: balanced-power fixes every
+ *    [STILL_INTERVAL_MS], one record every [STILL_SAVE_MS];
+ *  - after an SOS: every [SOS_INTERVAL_MS] for [SOS_BOOST_MS].
+ * Each record carries speed and travel mode ([TravelMode]).
  */
 class LocationTracker(
     context: Context,
@@ -39,6 +47,12 @@ class LocationTracker(
     private val appContext = context.applicationContext
     private val client = LocationServices.getFusedLocationProviderClient(appContext)
     private var callback: LocationCallback? = null
+    private val activity = ActivityTracker(appContext)
+
+    private enum class Pace { MOVING, STILL, SOS }
+    private var pace = Pace.MOVING
+    private var stillSinceMillis: Long? = null
+    private var sosBoostUntilMillis = 0L
 
     private val _latest = MutableStateFlow<WatchLocation?>(null)
     val latest: StateFlow<WatchLocation?> = _latest.asStateFlow()
@@ -49,15 +63,39 @@ class LocationTracker(
             ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    private fun requestFor(pace: Pace): LocationRequest = when (pace) {
+        Pace.SOS -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, SOS_INTERVAL_MS)
+            .setMinUpdateIntervalMillis(SOS_INTERVAL_MS)
+        Pace.MOVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MOVING_INTERVAL_MS)
+            .setMinUpdateIntervalMillis(MIN_UPDATE_INTERVAL_MS)
+        // Wi-Fi/cell positions are enough to notice the child starting to move.
+        Pace.STILL -> LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, STILL_INTERVAL_MS)
+            .setMinUpdateIntervalMillis(MOVING_INTERVAL_MS)
+    }.setMinUpdateDistanceMeters(0f).setWaitForAccurateLocation(false).build()
+
+    /** Switches between the moving, still and SOS rates. */
+    private fun setPace(next: Pace) {
+        if (next == pace) return
+        Log.i(TAG, "Location pace $pace -> $next")
+        pace = next
+        if (callback != null) {
+            stop()
+            start()
+        }
+    }
+
+    /** After an SOS the guardian follows the child closely for a while. */
+    fun boostForSos() {
+        sosBoostUntilMillis = System.currentTimeMillis() + SOS_BOOST_MS
+        setPace(Pace.SOS)
+    }
+
     @SuppressLint("MissingPermission")
     fun start() {
         if (callback != null || !hasPermission()) return
+        activity.start()
 
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, UPDATE_INTERVAL_MS)
-            .setMinUpdateIntervalMillis(MIN_UPDATE_INTERVAL_MS)
-            .setMinUpdateDistanceMeters(0f)
-            .setWaitForAccurateLocation(false)
-            .build()
+        val request = requestFor(pace)
 
         val cb = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
@@ -91,8 +129,17 @@ class LocationTracker(
         callback = null
     }
 
+    /** Stops everything, Activity Recognition included (monitoring ended). */
+    fun shutdown() {
+        stop()
+        activity.stop()
+    }
+
     // The last fix sent to SafeTrack (a "record").
     private var lastSaved: Location? = null
+
+    // The previous usable fix, for a speed when the fix has none.
+    private var previousFix: Location? = null
 
     // When the last usable fix arrived, saved as a record or not.
     private var lastFixAtMillis: Long? = null
@@ -133,9 +180,9 @@ class LocationTracker(
     }
 
     /**
-     * Fixes arrive every [UPDATE_INTERVAL_MS]. Moving: each one [MOVE_SAVE_M]
-     * or more from the last record is saved, so trips are drawn along the
-     * real streets. Staying still: one record every [STILL_SAVE_MS].
+     * Moving: each fix [MOVE_SAVE_M] or more from the last record is saved, so
+     * trips are drawn along the real streets as they happen. Staying still:
+     * one record every [STILL_SAVE_MS].
      */
     private fun shouldSave(location: Location): Boolean {
         val last = lastSaved ?: return true
@@ -151,11 +198,14 @@ class LocationTracker(
             Log.d(TAG, "Ignoring coarse fix (${location.accuracy} m)")
             return
         }
-        val fix = location.toWatchLocation()
+        val now = System.currentTimeMillis()
+        val fix = location.toWatchLocation(previousFix, now)
+        previousFix = location
         _latest.value = fix
-        lastFixAtMillis = System.currentTimeMillis()
+        lastFixAtMillis = now
         // Any usable fix means location works, even if this one isn't saved.
         monitoring.setLocationAvailable(true)
+        updatePace(fix, now)
         if (!alwaysSave && !shouldSave(location)) return
         lastSaved = location
         scope.launch {
@@ -214,22 +264,61 @@ class LocationTracker(
         }
     }
 
-    private fun Location.toWatchLocation() = WatchLocation(
-        latitude = latitude,
-        longitude = longitude,
-        accuracyMeters = if (hasAccuracy()) accuracy else null,
-        recordedAtMillis = time,
-    )
+    private fun updatePace(fix: WatchLocation, now: Long) {
+        if (pace == Pace.SOS && now < sosBoostUntilMillis) return
+        val moving = fix.travelMode?.let(TravelMode::isMoving) ?: false
+        if (moving) {
+            stillSinceMillis = null
+            setPace(Pace.MOVING)
+        } else {
+            val since = stillSinceMillis ?: now.also { stillSinceMillis = it }
+            setPace(if (now - since >= STILL_AFTER_MS) Pace.STILL else Pace.MOVING)
+        }
+    }
+
+    private fun Location.toWatchLocation(previous: Location? = null, now: Long = System.currentTimeMillis()): WatchLocation {
+        val accuracyMeters = if (hasAccuracy()) accuracy else null
+        // The fix's own Doppler speed, else the speed since the previous fix.
+        val elapsed = if (previous != null) time - previous.time else 0L
+        val speed = when {
+            hasSpeed() -> speed
+            previous != null && elapsed in 3_000L..120_000L -> distanceTo(previous) / (elapsed / 1000f)
+            else -> null
+        }
+        val estimate = TravelMode.combine(TravelMode.fromSpeed(speed, accuracyMeters), ActivityTracker.latest, now, speed)
+        return WatchLocation(
+            latitude = latitude,
+            longitude = longitude,
+            accuracyMeters = accuracyMeters,
+            recordedAtMillis = time,
+            speedMps = speed,
+            headingDegrees = if (hasBearing()) bearing else null,
+            travelMode = estimate.mode,
+            modeConfidence = estimate.confidence,
+        )
+    }
 
     companion object {
         private const val TAG = "LocationTracker"
 
-        /** Location checks while monitoring; only some become records (see shouldSave). */
-        const val UPDATE_INTERVAL_MS = 20_000L
-        const val MIN_UPDATE_INTERVAL_MS = 10_000L
+        /**
+         * Location checks while moving; only some become records (see
+         * shouldSave). 10 s instead of 5 s roughly halves the extra GPS
+         * battery use and still looks continuous on the guardian's map.
+         */
+        const val MOVING_INTERVAL_MS = 10_000L
+        const val MIN_UPDATE_INTERVAL_MS = 5_000L
+
+        /** Still this long: switch to [STILL_INTERVAL_MS] balanced-power checks. */
+        const val STILL_AFTER_MS = 2 * 60_000L
+        const val STILL_INTERVAL_MS = 60_000L
+
+        /** After an SOS: every 5 s for 10 minutes. */
+        const val SOS_INTERVAL_MS = 5_000L
+        const val SOS_BOOST_MS = 10 * 60_000L
 
         /** Moving: a record every time the child is this far from the last one. */
-        const val MOVE_SAVE_M = 25f
+        const val MOVE_SAVE_M = 15f
 
         /** Staying still: one record this often, as before. */
         const val STILL_SAVE_MS = 3 * 60_000L

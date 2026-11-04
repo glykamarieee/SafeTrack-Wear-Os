@@ -39,8 +39,11 @@ class WatchLink(
     sealed interface Result {
         data class Delivered(val response: JsonObject) : Result
 
-        /** Not delivered. [retryable] is false when resending the same call cannot succeed. */
-        data class Failed(val retryable: Boolean) : Result
+        /**
+         * Not delivered. [retryable] is false when resending the same call cannot succeed.
+         * [missingFunction]: SafeTrack does not have this function yet (migration not run).
+         */
+        data class Failed(val retryable: Boolean, val missingFunction: Boolean = false) : Result
     }
 
     private val _state = MutableStateFlow(State())
@@ -101,7 +104,10 @@ class WatchLink(
                     reset()
                 }
                 // 400 means SafeTrack refused this call's content; resending it will not help.
-                Result.Failed(retryable = result.status != 400)
+                Result.Failed(
+                    retryable = result.status != 400,
+                    missingFunction = result.status == 404 && result.code == "PGRST202",
+                )
             }
             ApiResult.Unreachable -> {
                 _state.update { it.copy(lastAttemptFailed = true) }
