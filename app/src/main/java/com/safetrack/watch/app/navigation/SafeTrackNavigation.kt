@@ -1,5 +1,9 @@
 package com.safetrack.watch.app.navigation
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -71,6 +75,25 @@ fun SafeTrackRoot(container: AppContainer) {
             if (hasLocation) MonitoringService.start(context)
         } else {
             SyncWorker.cancelAll(context)
+        }
+    }
+
+    // Travel mode (walking, biking, in a vehicle) for the guardian. Watches set
+    // up before this was added already have location access, so they never see
+    // the permission screen: ask once on the dashboard. Optional; without it
+    // the mode comes from GPS speed.
+    val activityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            container.location.stop()
+            container.location.start()
+        }
+    }
+    LaunchedEffect(paired, hasLocation, showTour) {
+        if (paired && hasLocation && !showTour && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            !Permissions.hasActivityRecognition(context) && !Permissions.activityAsked(context)
+        ) {
+            Permissions.markActivityAsked(context)
+            activityLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
         }
     }
 

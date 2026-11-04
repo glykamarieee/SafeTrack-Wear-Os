@@ -64,6 +64,19 @@ object Permissions {
 
     fun hasBackgroundLocation(context: Context) = granted(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
+    fun hasActivityRecognition(context: Context) =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || granted(context, Manifest.permission.ACTIVITY_RECOGNITION)
+
+    private const val PREFS = "safetrack_permissions"
+
+    /** The one-time "Physical activity" request has been shown. */
+    fun activityAsked(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("activity_asked", false)
+
+    fun markActivityAsked(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("activity_asked", true).apply()
+    }
+
     private fun granted(context: Context, permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
