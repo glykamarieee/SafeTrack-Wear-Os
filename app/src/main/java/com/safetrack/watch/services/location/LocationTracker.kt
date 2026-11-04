@@ -280,8 +280,12 @@ class LocationTracker(
         val accuracyMeters = if (hasAccuracy()) accuracy else null
         // The fix's own Doppler speed, else the speed since the previous fix.
         val elapsed = if (previous != null) time - previous.time else 0L
+        // Wi-Fi/cell fixes indoors have no speed and wander by their accuracy:
+        // a move smaller than that is no movement, not an unknown mode.
+        val noise = maxOf(accuracyMeters ?: 0f, if (previous?.hasAccuracy() == true) previous.accuracy else 0f)
         val speed = when {
             hasSpeed() -> speed
+            previous != null && elapsed in 3_000L..STILL_SAVE_MS + 60_000L && distanceTo(previous) <= noise -> 0f
             previous != null && elapsed in 3_000L..120_000L -> distanceTo(previous) / (elapsed / 1000f)
             else -> null
         }
