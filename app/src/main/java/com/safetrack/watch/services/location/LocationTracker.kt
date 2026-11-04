@@ -207,6 +207,9 @@ class LocationTracker(
         monitoring.setLocationAvailable(true)
         updatePace(fix, now)
         if (!alwaysSave && !shouldSave(location)) return
+        // The refresh after a restart or reconnect and the regular updates can
+        // deliver the same fix; record it once.
+        if (lastSaved?.time == location.time) return
         lastSaved = location
         scope.launch {
             withWakeLock(appContext, "location") { monitoring.reportLocation(fix) }
