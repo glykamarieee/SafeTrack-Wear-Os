@@ -167,6 +167,25 @@ class LocationTracker(
         }
     }
 
+    // The last fix sent to the live map.
+    private var lastLiveSent: Location? = null
+    private var lastLiveSentAtMillis = 0L
+
+    /**
+     * Moving: every fix. Still: one every [LIVE_STILL_MS], since the marker does
+     * not move; a speed or a move of [LIVE_MOVE_M] sends at once.
+     */
+    private fun liveDue(fix: WatchLocation, location: Location, now: Long): Boolean {
+        val still = fix.travelMode == TravelMode.STILL && (fix.speedMps ?: 0f) < TravelMode.STILL_BELOW_MPS
+        val moved = lastLiveSent?.let { location.distanceTo(it) >= LIVE_MOVE_M } ?: true
+        if (!still || moved || now - lastLiveSentAtMillis >= LIVE_STILL_MS) {
+            lastLiveSent = location
+            lastLiveSentAtMillis = now
+            return true
+        }
+        return false
+    }
+
     /** One fix to the live map; the answer switches the 1-second pace on or off. */
     private fun pushLive(fix: WatchLocation) {
         if (liveInFlight) return
@@ -257,7 +276,7 @@ class LocationTracker(
         // Any usable fix means location works, even if this one isn't saved.
         monitoring.setLocationAvailable(true)
         updatePace(fix, now)
-        if (liveWanted) pushLive(fix)
+        if (liveWanted && liveDue(fix, location, now)) pushLive(fix)
         if (!alwaysSave && !shouldSave(location)) return
         // The refresh after a restart or reconnect and the regular updates can
         // deliver the same fix; record it once.
@@ -388,6 +407,10 @@ class LocationTracker(
 
         /** How often the watch asks whether a guardian is watching. */
         const val LIVE_PROBE_MS = 20_000L
+
+        /** Live and still: a fix this often keeps the map "Live"; moving sends every fix. */
+        const val LIVE_STILL_MS = 5_000L
+        const val LIVE_MOVE_M = 5f
 
         /** Moving: a record every time the child is this far from the last one. */
         const val MOVE_SAVE_M = 15f
