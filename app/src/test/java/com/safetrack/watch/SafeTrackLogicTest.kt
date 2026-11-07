@@ -50,8 +50,12 @@ class SafeTrackLogicTest {
         assertEquals(TravelMode.STILL, TravelMode.fromSpeed(0.3f, 10f).mode)
         assertEquals(TravelMode.WALKING, TravelMode.fromSpeed(1.4f, 10f).mode)
         assertEquals(TravelMode.RUNNING, TravelMode.fromSpeed(3f, 10f).mode)
-        assertEquals(TravelMode.BIKING, TravelMode.fromSpeed(5f, 10f).mode)
+        // No bike mode: a sprint is running, faster is a vehicle.
+        assertEquals(TravelMode.RUNNING, TravelMode.fromSpeed(4.5f, 10f).mode)
+        assertEquals(TravelMode.VEHICLE, TravelMode.fromSpeed(6f, 10f).mode)
         assertEquals(TravelMode.VEHICLE, TravelMode.fromSpeed(12f, 10f).mode)
+        // A clear run is confident enough to show at once.
+        assertTrue(TravelMode.fromSpeed(3f, 10f).confidence >= 0.7f)
         // A coarse fix lowers the confidence.
         assertTrue(TravelMode.fromSpeed(1.4f, 100f).confidence < TravelMode.fromSpeed(1.4f, 10f).confidence)
     }
@@ -59,8 +63,9 @@ class SafeTrackLogicTest {
     @Test
     fun `activity recognition refines speed unless they clearly disagree`() {
         val now = 10_000_000L
+        // A bicycle is shown as a vehicle (there is no bike mode).
         val bike = ActivityTracker.Detected(DetectedActivity.ON_BICYCLE, 80, now - 10_000)
-        assertEquals(TravelMode.BIKING, TravelMode.combine(TravelMode.fromSpeed(3f, 10f), bike, now, 3f).mode)
+        assertEquals(TravelMode.VEHICLE, TravelMode.combine(TravelMode.fromSpeed(3f, 10f), bike, now, 3f).mode)
         // "Still" while moving 12 m/s: speed wins.
         val still = ActivityTracker.Detected(DetectedActivity.STILL, 90, now - 10_000)
         assertEquals(TravelMode.VEHICLE, TravelMode.combine(TravelMode.fromSpeed(12f, 10f), still, now, 12f).mode)

@@ -18,6 +18,7 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.safetrack.watch.domain.model.WatchLocation
 import com.safetrack.watch.domain.repository.MonitoringRepository
+import com.safetrack.watch.services.sensors.HeadingTracker
 import com.safetrack.watch.services.withWakeLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,7 +70,16 @@ class LocationTracker(
     private var liveWanted = false
     @Volatile
     private var liveInFlight = false
+    // The newest fix that arrived while a push was on its way: sent right
+    // after it, so a slow network never drops fixes (no lag while running).
+    @Volatile
+    private var livePending: WatchLocation? = null
     private var probeJob: Job? = null
+
+    // Which way the watch faces, for the arrow on the guardian's map (only
+    // while a guardian watches). Turning in place is sent at once.
+    private val compass = HeadingTracker(appContext) { heading -> onCompass(heading) }
+    private val testLog = LiveTestLog(appContext)
 
     private val _latest = MutableStateFlow<WatchLocation?>(null)
     val latest: StateFlow<WatchLocation?> = _latest.asStateFlow()
@@ -98,6 +108,7 @@ class LocationTracker(
     private fun setPace(next: Pace) {
         if (next == pace) return
         Log.i(TAG, "Location pace $pace -> $next")
+        testLog.write("pace", "from" to pace, "to" to next)
         pace = next
         if (callback != null) {
             stop()
@@ -155,6 +166,7 @@ class LocationTracker(
     fun shutdown() {
         stop()
         activity.stop()
+        compass.stop()
         probeJob?.cancel()
         probeJob = null
         liveWanted = false
@@ -174,15 +186,27 @@ class LocationTracker(
     // The last fix sent to the live map.
     private var lastLiveSent: Location? = null
     private var lastLiveSentAtMillis = 0L
+    private var lastLiveHeading: Float? = null
+    // The last sharp (GPS-quality) fix, so a coarse Wi-Fi/cell fix right after
+    // it is not sent: it would pull the child's marker 50-300 m away.
+    private var lastSharpAtMillis = 0L
 
     /**
      * Moving: every fix. Still: one every [LIVE_STILL_MS], since the marker does
-     * not move; a speed or a move of [LIVE_MOVE_M] sends at once.
+     * not move; a speed, a move of [LIVE_MOVE_M] or a turn of [LIVE_TURN_DEG]
+     * sends at once.
      */
     private fun liveDue(fix: WatchLocation, location: Location, now: Long): Boolean {
+        val accuracy = fix.accuracyMeters
+        if (accuracy != null && accuracy <= LIVE_SHARP_M) lastSharpAtMillis = now
+        if (accuracy != null && accuracy > LIVE_COARSE_M && now - lastSharpAtMillis < LIVE_SHARP_MS) {
+            testLog.write("skip", "why" to "coarse", "acc" to accuracy)
+            return false
+        }
         val still = fix.travelMode == TravelMode.STILL && (fix.speedMps ?: 0f) < TravelMode.STILL_BELOW_MPS
         val moved = lastLiveSent?.let { location.distanceTo(it) >= LIVE_MOVE_M } ?: true
-        if (!still || moved || now - lastLiveSentAtMillis >= LIVE_STILL_MS) {
+        val turned = turnedSinceLastSent(fix.headingDegrees)
+        if (!still || moved || turned || now - lastLiveSentAtMillis >= LIVE_STILL_MS) {
             lastLiveSent = location
             lastLiveSentAtMillis = now
             return true
@@ -190,23 +214,80 @@ class LocationTracker(
         return false
     }
 
+    private fun turnedSinceLastSent(heading: Float?): Boolean {
+        val last = lastLiveHeading
+        return heading != null && (last == null || HeadingTracker.angleBetween(heading, last) >= LIVE_TURN_DEG)
+    }
+
+    /** The compass moved: a child turning in place is sent at once (rate-limited). */
+    private fun onCompass(heading: Float) {
+        if (!liveWanted) return
+        val now = System.currentTimeMillis()
+        val fix = _latest.value ?: return
+        val still = (fix.speedMps ?: 0f) < FACING_FROM_GPS_MPS
+        if (!still || now - lastLiveSentAtMillis < LIVE_TURN_MIN_MS || !turnedSinceLastSent(heading)) return
+        if (now - fix.recordedAtMillis > LIVE_TURN_MAX_FIX_AGE_MS) return
+        lastLiveSentAtMillis = now
+        // Same place, new direction; a newer time so the map takes it.
+        pushLive(fix.copy(headingDegrees = heading, recordedAtMillis = now))
+    }
+
     /** One fix to the live map; the answer switches the 1-second pace on or off. */
     private fun pushLive(fix: WatchLocation) {
-        if (liveInFlight) return
+        if (liveInFlight) {
+            livePending = fix
+            return
+        }
         liveInFlight = true
+        if (fix.headingDegrees != null) lastLiveHeading = fix.headingDegrees
         scope.launch {
+            val started = System.currentTimeMillis()
             val live = try {
                 monitoring.pushLive(fix) == true
             } finally {
                 liveInFlight = false
             }
+            testLog.write(
+                "push",
+                "ms" to (System.currentTimeMillis() - started),
+                "age" to (System.currentTimeMillis() - fix.recordedAtMillis),
+                "live" to live,
+                "acc" to fix.accuracyMeters,
+                "spd" to fix.speedMps,
+                "hd" to fix.headingDegrees,
+                "mode" to fix.travelMode,
+                "lat" to fix.latitude,
+                "lng" to fix.longitude,
+            )
+            // Send the newest fix that arrived meanwhile (older ones are superseded).
+            livePending?.let { pending ->
+                livePending = null
+                if (live) withContext(Dispatchers.Main) { pushLive(pending) }
+            }
             if (live == liveWanted) return@launch
             liveWanted = live
             Log.i(TAG, if (live) "Guardian watching: live pace" else "Guardian left: normal pace")
+            testLog.write("live", "on" to live)
             withContext(Dispatchers.Main) {
-                if (live) setPace(Pace.LIVE) else _latest.value?.let { updatePace(it, System.currentTimeMillis()) }
+                if (live) {
+                    compass.start()
+                    setPace(Pace.LIVE)
+                } else {
+                    compass.stop()
+                    lastLiveHeading = null
+                    _latest.value?.let { updatePace(it, System.currentTimeMillis()) }
+                }
             }
         }
+    }
+
+    /**
+     * Which way the child faces: the GPS direction of travel while walking or
+     * running, otherwise the watch's compass (live only). Null when unknown.
+     */
+    private fun facing(location: Location, speedMps: Float?): Float? {
+        val gps = if (location.hasBearing() && (speedMps ?: 0f) >= FACING_FROM_GPS_MPS) location.bearing else null
+        return gps ?: if (liveWanted) compass.heading else null
     }
 
     // The last fix sent to SafeTrack (a "record").
@@ -277,6 +358,21 @@ class LocationTracker(
         previousFix = location
         _latest.value = fix
         lastFixAtMillis = now
+        if (liveWanted) compass.updatePosition(location.latitude, location.longitude, location.altitude)
+        testLog.write(
+            "fix",
+            "acc" to fix.accuracyMeters,
+            "spd" to fix.speedMps,
+            "hd" to fix.headingDegrees,
+            "gps" to (if (location.hasBearing()) location.bearing else null),
+            "mode" to fix.travelMode,
+            "conf" to fix.modeConfidence,
+            "pace" to pace,
+            "live" to liveWanted,
+            "provider" to location.provider,
+            "lat" to fix.latitude,
+            "lng" to fix.longitude,
+        )
         // Any usable fix means location works, even if this one isn't saved.
         monitoring.setLocationAvailable(true)
         updatePace(fix, now)
@@ -288,6 +384,7 @@ class LocationTracker(
         lastSaved = location
         scope.launch {
             withWakeLock(appContext, "location") { monitoring.reportLocation(fix) }
+            testLog.write("record", "zone" to monitoring.snapshot.value.safeZone, "acc" to fix.accuracyMeters)
         }
     }
 
@@ -385,7 +482,7 @@ class LocationTracker(
             accuracyMeters = accuracyMeters,
             recordedAtMillis = time,
             speedMps = speed,
-            headingDegrees = if (hasBearing()) bearing else null,
+            headingDegrees = facing(this, speed),
             travelMode = estimate.mode,
             modeConfidence = estimate.confidence,
         )
@@ -422,6 +519,20 @@ class LocationTracker(
 
         /** Live and still this long: GPS every [LIVE_STILL_MS] until the child moves. */
         const val LIVE_STILL_AFTER_MS = 30_000L
+
+        /** Live: turning this much is sent at once (no more than every [LIVE_TURN_MIN_MS]). */
+        const val LIVE_TURN_DEG = 15f
+        const val LIVE_TURN_MIN_MS = 700L
+        /** A turn is sent with the last position only while that is this recent. */
+        const val LIVE_TURN_MAX_FIX_AGE_MS = 10_000L
+
+        /** Live: a fix coarser than [LIVE_COARSE_M] waits while a [LIVE_SHARP_M] one is recent. */
+        const val LIVE_COARSE_M = 50f
+        const val LIVE_SHARP_M = 20f
+        const val LIVE_SHARP_MS = 10_000L
+
+        /** Walking speed: from here the direction of travel is where the child faces. */
+        const val FACING_FROM_GPS_MPS = 1f
 
         /** Moving: a record every time the child is this far from the last one. */
         const val MOVE_SAVE_M = 15f

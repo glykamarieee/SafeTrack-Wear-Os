@@ -78,7 +78,7 @@ fun SafeTrackRoot(container: AppContainer) {
         }
     }
 
-    // Travel mode (walking, biking, in a vehicle) for the guardian. Watches set
+    // Travel mode (walking, running, in a vehicle) for the guardian. Watches set
     // up before this was added already have location access, so they never see
     // the permission screen: ask once on the dashboard. Optional; without it
     // the mode comes from GPS speed.
