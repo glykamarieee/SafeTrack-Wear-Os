@@ -57,7 +57,9 @@ class LocationTracker(
     private var callback: LocationCallback? = null
     private val activity = ActivityTracker(appContext)
 
-    private enum class Pace { MOVING, STILL, SOS, LIVE }
+    // LIVE_STILL: a guardian is watching but the child has not moved for
+    // [LIVE_STILL_AFTER_MS]; GPS every [LIVE_STILL_MS] saves battery.
+    private enum class Pace { MOVING, STILL, SOS, LIVE, LIVE_STILL }
     private var pace = Pace.MOVING
     private var stillSinceMillis: Long? = null
     private var sosBoostUntilMillis = 0L
@@ -81,6 +83,8 @@ class LocationTracker(
     private fun requestFor(pace: Pace): LocationRequest = when (pace) {
         Pace.LIVE -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LIVE_INTERVAL_MS)
             .setMinUpdateIntervalMillis(LIVE_INTERVAL_MS)
+        Pace.LIVE_STILL -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LIVE_STILL_MS)
+            .setMinUpdateIntervalMillis(LIVE_STILL_MS)
         Pace.SOS -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, SOS_INTERVAL_MS)
             .setMinUpdateIntervalMillis(SOS_INTERVAL_MS)
         Pace.MOVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MOVING_INTERVAL_MS)
@@ -340,7 +344,11 @@ class LocationTracker(
 
     private fun updatePace(fix: WatchLocation, now: Long) {
         if (liveWanted) {
-            setPace(Pace.LIVE)
+            val moving = fix.travelMode?.let(TravelMode::isMoving) ?: false ||
+                (fix.speedMps ?: 0f) >= TravelMode.STILL_BELOW_MPS
+            if (moving) stillSinceMillis = null
+            val since = stillSinceMillis ?: now.also { if (!moving) stillSinceMillis = it }
+            setPace(if (!moving && now - since >= LIVE_STILL_AFTER_MS) Pace.LIVE_STILL else Pace.LIVE)
             return
         }
         if (now < sosBoostUntilMillis) {
@@ -411,6 +419,9 @@ class LocationTracker(
         /** Live and still: a fix this often keeps the map "Live"; moving sends every fix. */
         const val LIVE_STILL_MS = 5_000L
         const val LIVE_MOVE_M = 5f
+
+        /** Live and still this long: GPS every [LIVE_STILL_MS] until the child moves. */
+        const val LIVE_STILL_AFTER_MS = 30_000L
 
         /** Moving: a record every time the child is this far from the last one. */
         const val MOVE_SAVE_M = 15f
