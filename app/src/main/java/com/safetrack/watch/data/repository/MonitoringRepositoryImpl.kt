@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.put
 
 class MonitoringRepositoryImpl(
@@ -120,6 +122,26 @@ class MonitoringRepositoryImpl(
         }
     }
 
+    // push_watch_live (migration 20261108). Until it exists, ask again only
+    // every LIVE_RETRY_MS (the migration can be applied while the watch runs).
+    @Volatile
+    private var liveMissingUntil = 0L
+
+    override suspend fun pushLive(location: WatchLocation): Boolean? {
+        if (clock() < liveMissingUntil) return null
+        val result = link.send("push_watch_live", quiet = true) {
+            putLocation(location)
+            putMotion(location)
+        }
+        return when (result) {
+            is WatchLink.Result.Delivered -> (result.response["live"] as? JsonPrimitive)?.booleanOrNull ?: false
+            is WatchLink.Result.Failed -> {
+                if (result.missingFunction) liveMissingUntil = clock() + LIVE_RETRY_MS
+                if (result.missingFunction) null else false
+            }
+        }
+    }
+
     override fun setLocationAvailable(available: Boolean) {
         local.value = local.value.copy(locationAvailable = available)
     }
@@ -134,6 +156,9 @@ class MonitoringRepositoryImpl(
 
         /** A heartbeat is unnecessary if SafeTrack was reached this recently. */
         const val HEARTBEAT_SKIP_MS = 90_000L
+
+        /** Live map function missing (migration not run yet): ask again after this. */
+        const val LIVE_RETRY_MS = 10 * 60_000L
     }
 }
 

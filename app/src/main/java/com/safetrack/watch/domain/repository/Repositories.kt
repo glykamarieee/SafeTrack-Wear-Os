@@ -40,6 +40,12 @@ interface MonitoringRepository {
     /** Sends a location kept while offline, if any. */
     suspend fun flushPendingLocation()
 
+    /**
+     * Sends one fix to the guardian's live map (not saved). Returns true while a
+     * guardian is watching, false otherwise, null when live updates are unavailable.
+     */
+    suspend fun pushLive(location: WatchLocation): Boolean?
+
     fun setLocationAvailable(available: Boolean)
 
     /** Re-reads battery and network. */

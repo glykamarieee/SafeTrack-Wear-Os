@@ -63,7 +63,8 @@ class WatchLink(
         _state.value = State()
     }
 
-    suspend fun send(function: String, params: JsonObjectBuilder.() -> Unit = {}): Result {
+    /** [quiet]: frequent calls (live map) skip saving the sync time to disk. */
+    suspend fun send(function: String, quiet: Boolean = false, params: JsonObjectBuilder.() -> Unit = {}): Result {
         val session = devices.session.value ?: return Result.Failed(retryable = true)
         val device = status.read()
 
@@ -90,7 +91,7 @@ class WatchLink(
                 val zoneStatus = zoneJson?.string("status")
                 val zoneName = zoneJson?.string("zoneName")
                 val zone = SafeZoneStatus.fromServer(zoneStatus, zoneName)
-                store.saveSync(now, if (zone != null) zoneStatus else null, zoneName)
+                if (!quiet) store.saveSync(now, if (zone != null) zoneStatus else null, zoneName)
                 _state.update {
                     it.copy(lastSuccessAtMillis = now, lastAttemptFailed = false, safeZone = zone ?: it.safeZone)
                 }

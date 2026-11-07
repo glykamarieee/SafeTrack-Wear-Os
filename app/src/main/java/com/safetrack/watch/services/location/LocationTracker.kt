@@ -20,11 +20,16 @@ import com.safetrack.watch.domain.model.WatchLocation
 import com.safetrack.watch.domain.repository.MonitoringRepository
 import com.safetrack.watch.services.withWakeLock
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -36,7 +41,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *    [MOVE_SAVE_M] (the guardian sees the trip as it happens);
  *  - still for [STILL_AFTER_MS]: balanced-power fixes every
  *    [STILL_INTERVAL_MS], one record every [STILL_SAVE_MS];
- *  - after an SOS: every [SOS_INTERVAL_MS] for [SOS_BOOST_MS].
+ *  - after an SOS: every [SOS_INTERVAL_MS] for [SOS_BOOST_MS];
+ *  - while a guardian has the map open: every [LIVE_INTERVAL_MS], each fix
+ *    sent to the live map (not saved). Every [LIVE_PROBE_MS] the watch asks
+ *    whether anyone is watching, with the fix it already has.
  * Each record carries speed and travel mode ([TravelMode]).
  */
 class LocationTracker(
@@ -49,10 +57,17 @@ class LocationTracker(
     private var callback: LocationCallback? = null
     private val activity = ActivityTracker(appContext)
 
-    private enum class Pace { MOVING, STILL, SOS }
+    private enum class Pace { MOVING, STILL, SOS, LIVE }
     private var pace = Pace.MOVING
     private var stillSinceMillis: Long? = null
     private var sosBoostUntilMillis = 0L
+
+    // Live map: a guardian is watching (answer of the last push_watch_live).
+    @Volatile
+    private var liveWanted = false
+    @Volatile
+    private var liveInFlight = false
+    private var probeJob: Job? = null
 
     private val _latest = MutableStateFlow<WatchLocation?>(null)
     val latest: StateFlow<WatchLocation?> = _latest.asStateFlow()
@@ -64,6 +79,8 @@ class LocationTracker(
             PackageManager.PERMISSION_GRANTED
 
     private fun requestFor(pace: Pace): LocationRequest = when (pace) {
+        Pace.LIVE -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LIVE_INTERVAL_MS)
+            .setMinUpdateIntervalMillis(LIVE_INTERVAL_MS)
         Pace.SOS -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, SOS_INTERVAL_MS)
             .setMinUpdateIntervalMillis(SOS_INTERVAL_MS)
         Pace.MOVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MOVING_INTERVAL_MS)
@@ -94,6 +111,7 @@ class LocationTracker(
     fun start() {
         if (callback != null || !hasPermission()) return
         activity.start()
+        startProbe()
 
         val request = requestFor(pace)
 
@@ -133,6 +151,39 @@ class LocationTracker(
     fun shutdown() {
         stop()
         activity.stop()
+        probeJob?.cancel()
+        probeJob = null
+        liveWanted = false
+    }
+
+    /** Asks every [LIVE_PROBE_MS] whether a guardian is watching (cheap: no GPS). */
+    private fun startProbe() {
+        if (probeJob?.isActive == true) return
+        probeJob = scope.launch {
+            while (isActive) {
+                delay(LIVE_PROBE_MS)
+                if (!liveWanted) _latest.value?.let(::pushLive)
+            }
+        }
+    }
+
+    /** One fix to the live map; the answer switches the 1-second pace on or off. */
+    private fun pushLive(fix: WatchLocation) {
+        if (liveInFlight) return
+        liveInFlight = true
+        scope.launch {
+            val live = try {
+                monitoring.pushLive(fix) == true
+            } finally {
+                liveInFlight = false
+            }
+            if (live == liveWanted) return@launch
+            liveWanted = live
+            Log.i(TAG, if (live) "Guardian watching: live pace" else "Guardian left: normal pace")
+            withContext(Dispatchers.Main) {
+                if (live) setPace(Pace.LIVE) else _latest.value?.let { updatePace(it, System.currentTimeMillis()) }
+            }
+        }
     }
 
     // The last fix sent to SafeTrack (a "record").
@@ -206,6 +257,7 @@ class LocationTracker(
         // Any usable fix means location works, even if this one isn't saved.
         monitoring.setLocationAvailable(true)
         updatePace(fix, now)
+        if (liveWanted) pushLive(fix)
         if (!alwaysSave && !shouldSave(location)) return
         // The refresh after a restart or reconnect and the regular updates can
         // deliver the same fix; record it once.
@@ -268,7 +320,14 @@ class LocationTracker(
     }
 
     private fun updatePace(fix: WatchLocation, now: Long) {
-        if (pace == Pace.SOS && now < sosBoostUntilMillis) return
+        if (liveWanted) {
+            setPace(Pace.LIVE)
+            return
+        }
+        if (now < sosBoostUntilMillis) {
+            setPace(Pace.SOS)
+            return
+        }
         val moving = fix.travelMode?.let(TravelMode::isMoving) ?: false
         if (moving) {
             stillSinceMillis = null
@@ -323,6 +382,12 @@ class LocationTracker(
         /** After an SOS: every 5 s for 10 minutes. */
         const val SOS_INTERVAL_MS = 5_000L
         const val SOS_BOOST_MS = 10 * 60_000L
+
+        /** A guardian has the map open: a fix every second, each sent live. */
+        const val LIVE_INTERVAL_MS = 1_000L
+
+        /** How often the watch asks whether a guardian is watching. */
+        const val LIVE_PROBE_MS = 20_000L
 
         /** Moving: a record every time the child is this far from the last one. */
         const val MOVE_SAVE_M = 15f
