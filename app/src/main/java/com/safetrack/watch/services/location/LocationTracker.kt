@@ -68,8 +68,10 @@ class LocationTracker(
     // Live map: a guardian is watching (answer of the last push_watch_live).
     @Volatile
     private var liveWanted = false
+    // When the push on its way started (0: none). A push slower than
+    // [LIVE_STUCK_MS] no longer holds back the next fix.
     @Volatile
-    private var liveInFlight = false
+    private var liveInFlightSince = 0L
     // The newest fix that arrived while a push was on its way: sent right
     // after it, so a slow network never drops fixes (no lag while running).
     @Volatile
@@ -192,9 +194,10 @@ class LocationTracker(
     private var lastSharpAtMillis = 0L
 
     /**
-     * Moving: every fix. Still: one every [LIVE_STILL_MS], since the marker does
-     * not move; a speed, a move of [LIVE_MOVE_M] or a turn of [LIVE_TURN_DEG]
-     * sends at once.
+     * Live pace: every fix (a slow walk can read as "still", and holding fixes
+     * back until 5 m was a visible delay). Live-still pace (still for
+     * [LIVE_STILL_AFTER_MS]): one every [LIVE_STILL_MS]; a speed, a move of
+     * [LIVE_MOVE_M] or a turn of [LIVE_TURN_DEG] sends at once.
      */
     private fun liveDue(fix: WatchLocation, location: Location, now: Long): Boolean {
         val accuracy = fix.accuracyMeters
@@ -203,7 +206,8 @@ class LocationTracker(
             testLog.write("skip", "why" to "coarse", "acc" to accuracy)
             return false
         }
-        val still = fix.travelMode == TravelMode.STILL && (fix.speedMps ?: 0f) < TravelMode.STILL_BELOW_MPS
+        val still = pace == Pace.LIVE_STILL &&
+            fix.travelMode == TravelMode.STILL && (fix.speedMps ?: 0f) < TravelMode.STILL_BELOW_MPS
         val moved = lastLiveSent?.let { location.distanceTo(it) >= LIVE_MOVE_M } ?: true
         val turned = turnedSinceLastSent(fix.headingDegrees)
         if (!still || moved || turned || now - lastLiveSentAtMillis >= LIVE_STILL_MS) {
@@ -232,20 +236,30 @@ class LocationTracker(
         pushLive(fix.copy(headingDegrees = heading, recordedAtMillis = now))
     }
 
+    /**
+     * A guardian just opened the live map (see [LiveWake]): ask at once instead
+     * of at the next [LIVE_PROBE_MS] check. The answer starts 1-second fixes.
+     */
+    fun onWake() {
+        testLog.write("wake")
+        _latest.value?.let { pushLive(it, force = true) }
+    }
+
     /** One fix to the live map; the answer switches the 1-second pace on or off. */
-    private fun pushLive(fix: WatchLocation) {
-        if (liveInFlight) {
+    private fun pushLive(fix: WatchLocation, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && liveInFlightSince != 0L && now - liveInFlightSince < LIVE_STUCK_MS) {
             livePending = fix
             return
         }
-        liveInFlight = true
+        liveInFlightSince = now
         if (fix.headingDegrees != null) lastLiveHeading = fix.headingDegrees
         scope.launch {
             val started = System.currentTimeMillis()
             val live = try {
                 monitoring.pushLive(fix) == true
             } finally {
-                liveInFlight = false
+                liveInFlightSince = 0L
             }
             testLog.write(
                 "push",
@@ -510,8 +524,14 @@ class LocationTracker(
         /** A guardian has the map open: a fix every second, each sent live. */
         const val LIVE_INTERVAL_MS = 1_000L
 
-        /** How often the watch asks whether a guardian is watching. */
+        /**
+         * How often the watch asks whether a guardian is watching. A fallback
+         * only: the guardian's app wakes the watch at once ([LiveWake]).
+         */
         const val LIVE_PROBE_MS = 20_000L
+
+        /** A live push slower than this no longer holds back the next fix. */
+        const val LIVE_STUCK_MS = 1_500L
 
         /** Live and still: a fix this often keeps the map "Live"; moving sends every fix. */
         const val LIVE_STILL_MS = 5_000L

@@ -10,6 +10,7 @@ import com.safetrack.watch.data.repository.DeviceRepositoryImpl
 import com.safetrack.watch.data.repository.MonitoringRepositoryImpl
 import com.safetrack.watch.data.repository.SosRepositoryImpl
 import com.safetrack.watch.data.repository.WatchLink
+import com.safetrack.watch.services.location.LiveWake
 import com.safetrack.watch.services.location.LocationTracker
 import com.safetrack.watch.services.sos.SosAlerts
 import com.safetrack.watch.services.sos.SosController
@@ -37,6 +38,15 @@ class AppContainer(context: Context) {
     val monitoring = MonitoringRepositoryImpl(link, store, status, appScope)
     val sos = SosRepositoryImpl(link, store, devices)
     val location = LocationTracker(appContext, monitoring, appScope)
+
+    // A guardian opening the live map wakes the watch at once.
+    private val liveWake = LiveWake(BuildConfig.SAFETRACK_URL, BuildConfig.SAFETRACK_PUBLISHABLE_KEY, appScope) {
+        location.onWake()
+    }
+
+    init {
+        appScope.launch { devices.session.collect { liveWake.watch(it?.childId) } }
+    }
 
     val sosController = SosController(
         scope = appScope,
