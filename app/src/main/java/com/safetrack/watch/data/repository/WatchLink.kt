@@ -95,6 +95,8 @@ class WatchLink(
                 _state.update {
                     it.copy(lastSuccessAtMillis = now, lastAttemptFailed = false, safeZone = zone ?: it.safeZone)
                 }
+                // The child's current name (renamed in the app), when SafeTrack sends it.
+                result.body.string("childName")?.let { devices.updateChildName(it) }
                 Result.Delivered(result.body)
             }
             is ApiResult.HttpError -> {

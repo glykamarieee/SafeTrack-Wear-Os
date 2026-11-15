@@ -69,6 +69,11 @@ class LocalStore(context: Context, private val cipher: TokenCipher) {
         }
     }
 
+    /** The child was renamed in the app: keep the rest of the session as it is. */
+    suspend fun saveChildName(name: String) {
+        store.edit { it[CHILD_NAME] = name }
+    }
+
     /** Forgets the link to the child. The Watch ID and pending SOS records are kept. */
     suspend fun clearSession() {
         store.edit {

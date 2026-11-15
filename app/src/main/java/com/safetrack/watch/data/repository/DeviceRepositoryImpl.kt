@@ -115,6 +115,20 @@ class DeviceRepositoryImpl(
         _unlinkNotice.value = SafeTrackError.Unlinked.message
     }
 
+    /**
+     * SafeTrack sent the child's current name (push_watch_live, migration
+     * 20261115): save it when the child was renamed in the app, so the watch
+     * shows the new name without pairing again.
+     */
+    suspend fun updateChildName(name: String) {
+        val current = _session.value ?: return
+        val clean = name.trim()
+        if (clean.isEmpty() || clean == current.childName) return
+        store.saveChildName(clean)
+        // Only if the session was not replaced meanwhile (unlinked or paired again).
+        if (_session.value?.deviceToken == current.deviceToken) _session.value = current.copy(childName = clean)
+    }
+
     override fun acknowledgeConnected() {
         _justConnected.value = null
     }
