@@ -42,7 +42,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  *    [MOVE_SAVE_M] (the guardian sees the trip as it happens);
  *  - still for [STILL_AFTER_MS]: balanced-power fixes every
  *    [STILL_INTERVAL_MS], one record every [STILL_SAVE_MS];
- *  - after an SOS: every [SOS_INTERVAL_MS] for [SOS_BOOST_MS];
+ *  - after an SOS: a fix and a record every [SOS_INTERVAL_MS] for [SOS_BOOST_MS]
+ *    (records every [SOS_INTERVAL_MS] even while the live map is open);
  *  - while a guardian has the map open: every [LIVE_INTERVAL_MS], each fix
  *    sent to the live map (not saved). Every [LIVE_PROBE_MS] the watch asks
  *    whether anyone is watching, with the fix it already has.
@@ -356,6 +357,12 @@ class LocationTracker(
     private fun shouldSave(location: Location): Boolean {
         val last = lastSaved ?: return true
         if (location.time - last.time >= STILL_SAVE_MS) return true
+        // For 10 minutes after an SOS: a record every [SOS_INTERVAL_MS], moving or not, and also
+        // while a guardian watches live (live fixes alone are not saved), so the SOS is followed
+        // in the history as well as on the map.
+        if (System.currentTimeMillis() < sosBoostUntilMillis &&
+            location.time - last.time >= SOS_INTERVAL_MS - SOS_SAVE_SLACK_MS
+        ) return true
         val moved = location.distanceTo(last)
         // Ignore wobble smaller than the two fixes' accuracy.
         val noise = maxOf(if (location.hasAccuracy()) location.accuracy else 0f, if (last.hasAccuracy()) last.accuracy else 0f)
@@ -520,6 +527,8 @@ class LocationTracker(
         /** After an SOS: every 5 s for 10 minutes. */
         const val SOS_INTERVAL_MS = 5_000L
         const val SOS_BOOST_MS = 10 * 60_000L
+        /** Fixes arrive about every 5 s; a little slack so none is skipped for being early. */
+        const val SOS_SAVE_SLACK_MS = 500L
 
         /** A guardian has the map open: a fix every second, each sent live. */
         const val LIVE_INTERVAL_MS = 1_000L

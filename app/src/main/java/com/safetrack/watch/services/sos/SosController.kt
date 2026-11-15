@@ -48,6 +48,43 @@ class SosController(
     private var lastLocalId: String? = null
     private var lastAlertId: String? = null
 
+    // The last sent (or pending) SOS screen, kept for [RECENT_SOS_MS] after it was sent so the
+    // dashboard can reopen it: "Sent by mistake" stays reachable after the screen closes.
+    private var lastSentScreen: SosState? = null
+    private var recentClear: Job? = null
+    private val _recentSentAt = MutableStateFlow<Long?>(null)
+    val recentSentAt: StateFlow<Long?> = _recentSentAt.asStateFlow()
+
+    /** Reopens the last SOS's Sent / Pending screen (with "Sent by mistake"). */
+    fun reopenSent(): Boolean {
+        val sentAt = _recentSentAt.value ?: return false
+        val screen = lastSentScreen ?: return false
+        if (_state.value != SosState.Idle) return false
+        if (clock() - sentAt > RECENT_SOS_MS) {
+            forgetRecent()
+            return false
+        }
+        showThenReturn(screen, SENT_SCREEN_MS)
+        return true
+    }
+
+    private fun rememberRecent(screen: SosState) {
+        lastSentScreen = screen
+        _recentSentAt.value = clock()
+        recentClear?.cancel()
+        recentClear = scope.launch {
+            delay(RECENT_SOS_MS)
+            forgetRecent()
+        }
+    }
+
+    private fun forgetRecent() {
+        recentClear?.cancel()
+        recentClear = null
+        lastSentScreen = null
+        _recentSentAt.value = null
+    }
+
     /** Starts the countdown. Ignored while another SOS is counting down or sending. */
     fun trigger(activation: SosActivation): Boolean {
         if (devices.session.value == null) return false
@@ -114,7 +151,10 @@ class SosController(
                 if (alertId == null) current is SosState.Pending else sos.cancelDelivered(alertId)
             }
             Log.i(TAG, "SOS withdrawn by the child (done=$done)")
-            if (done) alerts.cancelled()
+            if (done) {
+                alerts.cancelled()
+                forgetRecent()
+            }
             showThenReturn(SosState.Withdrawn(done), if (done) RESULT_SCREEN_MS else SENT_SCREEN_MS)
         }
     }
@@ -157,11 +197,15 @@ class SosController(
         if (sent) {
             Log.i(TAG, "SOS transmitted (${record.localId})")
             lastAlertId = sos.deliveredAlertId(record.localId)
-            showThenReturn(SosState.Sent(hasLocation, lastAlertId), SENT_SCREEN_MS)
+            val screen = SosState.Sent(hasLocation, lastAlertId)
+            rememberRecent(screen)
+            showThenReturn(screen, SENT_SCREEN_MS)
         } else {
             Log.w(TAG, "SOS pending; retry scheduled (${record.localId})")
             scheduleRetry()
-            showThenReturn(SosState.Pending(hasLocation), SENT_SCREEN_MS)
+            val screen = SosState.Pending(hasLocation)
+            rememberRecent(screen)
+            showThenReturn(screen, SENT_SCREEN_MS)
         }
     }
 
@@ -182,5 +226,8 @@ class SosController(
         const val RESULT_SCREEN_MS = 12_000L
         // Long enough to notice a mistake and tap "Sent by mistake".
         const val SENT_SCREEN_MS = 30_000L
+        // After the Sent screen closes, the dashboard offers "Sent by mistake" this long
+        // (the same 10 minutes the guardian follows the child closely after an SOS).
+        const val RECENT_SOS_MS = 10 * 60_000L
     }
 }

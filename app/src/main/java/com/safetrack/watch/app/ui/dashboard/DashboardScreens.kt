@@ -114,9 +114,12 @@ fun DashboardScreen(
     TrackVisibility(viewModel)
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val name by viewModel.childName.collectAsStateWithLifecycle()
+    val recentSosAt by viewModel.recentSosAt.collectAsStateWithLifecycle()
     DashboardContent(
         snapshot = snapshot,
         name = name,
+        recentSos = recentSosAt != null,
+        onOpenRecentSos = viewModel::openRecentSos,
         onHoldComplete = viewModel::holdCompleted,
         onOpenSafeZone = onOpenSafeZone,
         onOpenStatus = onOpenStatus,
@@ -130,6 +133,9 @@ fun DashboardScreen(
 fun DashboardContent(
     snapshot: MonitoringSnapshot,
     name: String,
+    /** An SOS was sent in the last 10 minutes: offer "Sent by mistake" again. */
+    recentSos: Boolean = false,
+    onOpenRecentSos: () -> Unit = {},
     onHoldComplete: () -> Unit,
     onOpenSafeZone: () -> Unit,
     onOpenStatus: () -> Unit,
@@ -158,6 +164,17 @@ fun DashboardContent(
                         onHoldComplete = onHoldComplete,
                         modifier = Modifier.entrance(0),
                     )
+                }
+
+                if (recentSos) {
+                    item {
+                        NoticeCard(
+                            icon = Icons.Rounded.Warning,
+                            title = "SOS sent",
+                            body = "Sent by mistake? Tap here",
+                            onClick = onOpenRecentSos,
+                        )
+                    }
                 }
 
                 item { Greeting(name, Modifier.entrance(1)) }
