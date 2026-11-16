@@ -42,8 +42,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *    [MOVE_SAVE_M] (the guardian sees the trip as it happens);
  *  - still for [STILL_AFTER_MS]: balanced-power fixes every
  *    [STILL_INTERVAL_MS], one record every [STILL_SAVE_MS];
- *  - after an SOS: a fix and a record every [SOS_INTERVAL_MS] for [SOS_BOOST_MS]
- *    (records every [SOS_INTERVAL_MS] even while the live map is open);
+ *  - after an SOS: a fix and a record every [SOS_INTERVAL_MS] (every [SOS_LOW_BATTERY_INTERVAL_MS]
+ *    below [SOS_LOW_BATTERY_PERCENT] % battery) until SafeTrack reports that the SOS was
+ *    acknowledged or cancelled, at most [SOS_BOOST_MS]; records keep that rate even while the live
+ *    map is open;
  *  - while a guardian has the map open: every [LIVE_INTERVAL_MS], each fix
  *    sent to the live map (not saved). Every [LIVE_PROBE_MS] the watch asks
  *    whether anyone is watching, with the fix it already has.
@@ -65,6 +67,7 @@ class LocationTracker(
     private var pace = Pace.MOVING
     private var stillSinceMillis: Long? = null
     private var sosBoostUntilMillis = 0L
+    private var sosBoostStartedMillis = 0L
 
     // Live map: a guardian is watching (answer of the last push_watch_live).
     @Volatile
@@ -98,8 +101,8 @@ class LocationTracker(
             .setMinUpdateIntervalMillis(LIVE_INTERVAL_MS)
         Pace.LIVE_STILL -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, LIVE_STILL_MS)
             .setMinUpdateIntervalMillis(LIVE_STILL_MS)
-        Pace.SOS -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, SOS_INTERVAL_MS)
-            .setMinUpdateIntervalMillis(SOS_INTERVAL_MS)
+        Pace.SOS -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, sosIntervalMs())
+            .setMinUpdateIntervalMillis(sosIntervalMs())
         Pace.MOVING -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, MOVING_INTERVAL_MS)
             .setMinUpdateIntervalMillis(MIN_UPDATE_INTERVAL_MS)
         // Wi-Fi/cell positions are enough to notice the child starting to move.
@@ -121,8 +124,36 @@ class LocationTracker(
 
     /** After an SOS the guardian follows the child closely for a while. */
     fun boostForSos() {
-        sosBoostUntilMillis = System.currentTimeMillis() + SOS_BOOST_MS
+        sosBoostStartedMillis = System.currentTimeMillis()
+        sosBoostUntilMillis = sosBoostStartedMillis + SOS_BOOST_MS
         setPace(Pace.SOS)
+    }
+
+    /** The SOS was acknowledged or cancelled: back to the normal rates. */
+    fun endSosBoost() {
+        if (sosBoostUntilMillis == 0L) return
+        Log.i(TAG, "SOS ended: normal pace")
+        sosBoostUntilMillis = 0L
+        _latest.value?.let { updatePace(it, System.currentTimeMillis()) }
+    }
+
+    /** Every 5 s, or every 15 s when the battery is low, so the watch lasts through the emergency. */
+    private fun sosIntervalMs(): Long {
+        val battery = monitoring.snapshot.value.device.batteryPercent
+        return if (battery != null && battery < SOS_LOW_BATTERY_PERCENT) SOS_LOW_BATTERY_INTERVAL_MS else SOS_INTERVAL_MS
+    }
+
+    init {
+        // SafeTrack says in each reply whether the child still has an active SOS. Once a reply sent
+        // after the SOS reached SafeTrack says no (acknowledged or cancelled), the fast rate ends.
+        scope.launch {
+            monitoring.snapshot.collect { snap ->
+                val replyAfterSos = (snap.lastSyncAtMillis ?: 0L) > sosBoostStartedMillis + SOS_SERVER_GRACE_MS
+                if (sosBoostUntilMillis != 0L && snap.sosActiveOnServer == false && replyAfterSos && snap.pendingSosCount == 0) {
+                    withContext(Dispatchers.Main) { endSosBoost() }
+                }
+            }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -357,11 +388,11 @@ class LocationTracker(
     private fun shouldSave(location: Location): Boolean {
         val last = lastSaved ?: return true
         if (location.time - last.time >= STILL_SAVE_MS) return true
-        // For 10 minutes after an SOS: a record every [SOS_INTERVAL_MS], moving or not, and also
+        // While the SOS is active (at most [SOS_BOOST_MS]): a record at the SOS rate, moving or not, and also
         // while a guardian watches live (live fixes alone are not saved), so the SOS is followed
         // in the history as well as on the map.
         if (System.currentTimeMillis() < sosBoostUntilMillis &&
-            location.time - last.time >= SOS_INTERVAL_MS - SOS_SAVE_SLACK_MS
+            location.time - last.time >= sosIntervalMs() - SOS_SAVE_SLACK_MS
         ) return true
         val moved = location.distanceTo(last)
         // Ignore wobble smaller than the two fixes' accuracy.
@@ -524,9 +555,14 @@ class LocationTracker(
         const val STILL_AFTER_MS = 2 * 60_000L
         const val STILL_INTERVAL_MS = 60_000L
 
-        /** After an SOS: every 5 s for 10 minutes. */
+        /** After an SOS: every 5 s until it is acknowledged or cancelled, at most 30 minutes. */
         const val SOS_INTERVAL_MS = 5_000L
-        const val SOS_BOOST_MS = 10 * 60_000L
+        const val SOS_BOOST_MS = 30 * 60_000L
+        /** Below this battery level the SOS rate is every [SOS_LOW_BATTERY_INTERVAL_MS]. */
+        const val SOS_LOW_BATTERY_PERCENT = 15
+        const val SOS_LOW_BATTERY_INTERVAL_MS = 15_000L
+        /** Replies this soon after the SOS started may predate it on SafeTrack; they are ignored. */
+        const val SOS_SERVER_GRACE_MS = 20_000L
         /** Fixes arrive about every 5 s; a little slack so none is skipped for being early. */
         const val SOS_SAVE_SLACK_MS = 500L
 

@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -34,6 +36,8 @@ class WatchLink(
         val inFlight: Int = 0,
         val lastAttemptFailed: Boolean = false,
         val safeZone: SafeZoneStatus = SafeZoneStatus.Unavailable(SafeZoneStatus.Reason.NOT_CHECKED),
+        /** Whether the child still has an active SOS, as SafeTrack last said (null: not reported). */
+        val activeSos: Boolean? = null,
     )
 
     sealed interface Result {
@@ -92,8 +96,14 @@ class WatchLink(
                 val zoneName = zoneJson?.string("zoneName")
                 val zone = SafeZoneStatus.fromServer(zoneStatus, zoneName)
                 if (!quiet) store.saveSync(now, if (zone != null) zoneStatus else null, zoneName)
+                val activeSos = (result.body["activeSos"] as? JsonPrimitive)?.booleanOrNull
                 _state.update {
-                    it.copy(lastSuccessAtMillis = now, lastAttemptFailed = false, safeZone = zone ?: it.safeZone)
+                    it.copy(
+                        lastSuccessAtMillis = now,
+                        lastAttemptFailed = false,
+                        safeZone = zone ?: it.safeZone,
+                        activeSos = activeSos ?: it.activeSos,
+                    )
                 }
                 // The child's current name (renamed in the app), when SafeTrack sends it.
                 result.body.string("childName")?.let { devices.updateChildName(it) }

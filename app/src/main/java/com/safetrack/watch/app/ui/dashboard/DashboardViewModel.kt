@@ -55,7 +55,7 @@ class DashboardViewModel(
         sos.trigger(SosActivation.TAP_AND_HOLD)
     }
 
-    /** When the last SOS was sent, for 10 minutes after it (null otherwise). */
+    /** When the last SOS was sent, for at most 30 minutes after it (null otherwise). */
     val recentSosAt: StateFlow<Long?> = sos.recentSentAt
 
     /** Reopens the last SOS screen so the child can still tap "Sent by mistake". */

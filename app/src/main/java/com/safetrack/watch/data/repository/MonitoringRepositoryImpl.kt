@@ -50,6 +50,7 @@ class MonitoringRepositoryImpl(
                 locationAvailable = localState.locationAvailable,
                 device = localState.device,
                 pendingSosCount = pendingSos.size,
+                sosActiveOnServer = linkState.activeSos,
             )
         }.stateIn(scope, SharingStarted.Eagerly, MonitoringSnapshot())
 

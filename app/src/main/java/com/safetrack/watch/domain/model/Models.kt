@@ -113,4 +113,6 @@ data class MonitoringSnapshot(
     val locationAvailable: Boolean = true,
     val device: DeviceStatus = DeviceStatus(null, false, NetworkType.UNKNOWN),
     val pendingSosCount: Int = 0,
+    /** SafeTrack still has an active SOS for the child (null: not reported yet). */
+    val sosActiveOnServer: Boolean? = null,
 )

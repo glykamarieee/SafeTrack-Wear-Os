@@ -154,6 +154,8 @@ class SosController(
             if (done) {
                 alerts.cancelled()
                 forgetRecent()
+                // The emergency is over: stop the fast SOS location rate.
+                location.endSosBoost()
             }
             showThenReturn(SosState.Withdrawn(done), if (done) RESULT_SCREEN_MS else SENT_SCREEN_MS)
         }
@@ -182,7 +184,7 @@ class SosController(
         lastLocalId = record.localId
         Log.i(TAG, "SOS confirmed and saved (${record.localId})")
 
-        // The guardian follows the child closely for the next 10 minutes.
+        // The guardian follows the child closely until the SOS is acknowledged or cancelled.
         location.boostForSos()
 
         location.locationForSos()?.let { fresh ->
@@ -226,8 +228,8 @@ class SosController(
         const val RESULT_SCREEN_MS = 12_000L
         // Long enough to notice a mistake and tap "Sent by mistake".
         const val SENT_SCREEN_MS = 30_000L
-        // After the Sent screen closes, the dashboard offers "Sent by mistake" this long
-        // (the same 10 minutes the guardian follows the child closely after an SOS).
-        const val RECENT_SOS_MS = 10 * 60_000L
+        // After the Sent screen closes, the dashboard offers "Sent by mistake" while the SOS is
+        // active, at most this long (the same limit as the fast SOS location rate).
+        const val RECENT_SOS_MS = 30 * 60_000L
     }
 }

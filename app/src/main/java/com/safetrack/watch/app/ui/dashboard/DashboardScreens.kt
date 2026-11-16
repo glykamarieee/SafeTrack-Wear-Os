@@ -118,7 +118,8 @@ fun DashboardScreen(
     DashboardContent(
         snapshot = snapshot,
         name = name,
-        recentSos = recentSosAt != null,
+        // Hidden once SafeTrack says the SOS is over (acknowledged or cancelled).
+        recentSos = recentSosAt != null && snapshot.sosActiveOnServer != false,
         onOpenRecentSos = viewModel::openRecentSos,
         onHoldComplete = viewModel::holdCompleted,
         onOpenSafeZone = onOpenSafeZone,
@@ -133,7 +134,7 @@ fun DashboardScreen(
 fun DashboardContent(
     snapshot: MonitoringSnapshot,
     name: String,
-    /** An SOS was sent in the last 10 minutes: offer "Sent by mistake" again. */
+    /** An SOS is still active (sent in the last 30 minutes): offer "Sent by mistake" again. */
     recentSos: Boolean = false,
     onOpenRecentSos: () -> Unit = {},
     onHoldComplete: () -> Unit,
